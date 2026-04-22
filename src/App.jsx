@@ -145,6 +145,17 @@ const sb = {
     });
     return r.json();
   },
+  async usernameAvailable(username) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/username_available`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ uname: username.trim().toLowerCase() }),
+    });
+    return r.json(); // returns true if available
+  },
   async markDMsRead(token, fromId, toId) {
     await fetch(
       `${SUPABASE_URL}/rest/v1/direct_messages?from_user_id=eq.${fromId}&to_user_id=eq.${toId}&is_read=eq.false`,
@@ -365,11 +376,11 @@ const css = `
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;animation:fadeIn .2s ease}
   .modal{background:var(--sur);border-radius:24px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 24px 80px rgba(0,0,0,.2);animation:slideUp .3s ease;position:relative;max-height:90vh;overflow-y:auto}
   @media(max-width:600px){
-    .modal-overlay{align-items:flex-end;padding:0}
-    .modal{border-radius:24px 24px 0 0;max-height:95vh;padding:28px 20px 32px;animation:slideUpMobile .3s ease}
+    .modal-overlay{align-items:stretch;padding:0;background:var(--bg);backdrop-filter:none}
+    .modal{border-radius:0;min-height:100dvh;height:auto;max-height:none;padding:72px 24px 56px;overflow-y:auto;box-shadow:none;animation:fadeIn .25s ease}
+    .modal-close{position:fixed;top:16px;left:16px;right:auto;z-index:10;background:var(--sur2)}
   }
-  @keyframes slideUpMobile{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
-  .modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:none;background:var(--sur2);cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;transition:background .2s}.modal-close:hover{background:var(--bdr)}
+  .modal-close{position:absolute;top:16px;right:16px;width:36px;height:36px;border-radius:50%;border:none;background:var(--sur2);cursor:pointer;font-size:.85rem;font-weight:700;display:flex;align-items:center;justify-content:center;transition:background .2s;color:var(--soft)}.modal-close:hover{background:var(--bdr)}
   .modal-logo{font-family:'GFS Didot',serif;font-size:1.6rem;font-weight:900;text-align:center;margin-bottom:6px}.modal-logo span{color:var(--gold)}
   .modal-sub{text-align:center;color:var(--muted);font-size:.875rem;margin-bottom:24px}
   .modal-tabs{display:flex;background:var(--sur2);border-radius:12px;padding:4px;margin-bottom:20px}
@@ -391,6 +402,11 @@ const css = `
   .btn-full{width:100%;padding:13px;font-size:.95rem;border-radius:14px}
   .terms-note{font-size:.75rem;color:var(--muted);text-align:center;margin-top:14px;line-height:1.5}
   .terms-note a{color:var(--gold);text-decoration:none}
+  /* username availability indicator */
+  .username-status{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:.82rem;font-weight:700;pointer-events:none}
+  .username-status.ok{color:var(--green)}
+  .username-status.taken{color:var(--red)}
+  .username-status.checking{color:var(--muted);letter-spacing:1px}
 
   /* ── APP LAYOUT ── */
   .app-layout{display:flex;height:100vh;overflow:hidden;background:var(--bg)}
@@ -863,14 +879,38 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState(null); // null|'checking'|'available'|'taken'
 
   const strength = pwStrength(password);
   const strengthColors = ['#bbb', '#CE1126', '#f59e0b', '#D4AF37', '#006B3F'];
   const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
 
+  // Debounced live username availability check
+  useEffect(() => {
+    if (
+      tab !== 'signup' ||
+      username.length < 3 ||
+      !/^[a-zA-Z0-9_]+$/.test(username)
+    ) {
+      setUsernameStatus(null);
+      return;
+    }
+    setUsernameStatus('checking');
+    const t = setTimeout(async () => {
+      try {
+        const ok = await sb.usernameAvailable(username);
+        setUsernameStatus(ok ? 'available' : 'taken');
+      } catch {
+        setUsernameStatus(null);
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [username, tab]);
+
   async function handleSubmit() {
     setError('');
     setSuccess('');
+
     if (tab === 'signup') {
       if (!username.trim()) {
         setError('Please choose a username');
@@ -878,6 +918,14 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       }
       if (username.trim().length < 3) {
         setError('Username must be at least 3 characters');
+        return;
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
+        setError('Username can only use letters, numbers, and underscores (_)');
+        return;
+      }
+      if (usernameStatus === 'taken') {
+        setError('That username is already taken — please choose another');
         return;
       }
       if (password !== confirmPw) {
@@ -890,7 +938,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       }
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Please enter a valid email');
+      setError('Please enter a valid email address');
       return;
     }
     if (password.length < 6) {
@@ -900,21 +948,51 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
 
     setLoading(true);
     try {
+      // Final username availability check right before creating account
+      if (tab === 'signup') {
+        const ok = await sb.usernameAvailable(username.trim());
+        if (!ok) {
+          setError('That username was just taken — please pick another');
+          setLoading(false);
+          return;
+        }
+      }
+
       const data =
         tab === 'login'
           ? await sb.signIn(email, password)
-          : await sb.signUp(email, password, username);
+          : await sb.signUp(email, password, username.trim());
 
-      const errMsg = data.error?.message || data.error_description || data.msg;
-      if (errMsg) {
-        setError(errMsg);
+      const raw = data.error?.message || data.error_description || data.msg;
+      if (raw) {
+        const msg = raw.toLowerCase();
+        if (
+          msg.includes('already registered') ||
+          msg.includes('already been registered')
+        ) {
+          setError('This email is already registered — try signing in instead');
+        } else if (
+          msg.includes('invalid login credentials') ||
+          msg.includes('invalid credentials')
+        ) {
+          setError('Incorrect email or password — please try again');
+        } else if (msg.includes('email not confirmed')) {
+          setError(
+            "Your email isn't confirmed yet — check your inbox for the confirmation link",
+          );
+        } else if (msg.includes('rate limit') || msg.includes('too many')) {
+          setError('Too many attempts — please wait a moment and try again');
+        } else {
+          setError(raw);
+        }
         setLoading(false);
         return;
       }
 
+      // Email confirmation required (no access_token yet)
       if (!data.access_token) {
         setSuccess(
-          'Account created! Check your email to confirm, then sign in.',
+          "Account created! 🎉 We've sent a confirmation link to your email — click it to activate your account, then sign in.",
         );
         setLoading(false);
         return;
@@ -925,15 +1003,17 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       if (!user.user_metadata.username) {
         user.user_metadata.username =
           tab === 'signup'
-            ? username
-            : user.user_metadata.full_name || email.split('@')[0];
+            ? username.trim()
+            : user.user_metadata.full_name ||
+              user.user_metadata.name ||
+              email.split('@')[0];
       }
       const store = stayIn ? localStorage : sessionStorage;
       store.setItem('gchat_token', data.access_token);
       store.setItem('gchat_user', JSON.stringify(user));
       onAuth(user, data.access_token);
     } catch {
-      setError('Network error — please check your connection.');
+      setError('Network error — please check your connection and try again');
     }
     setLoading(false);
   }
@@ -942,6 +1022,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
     setTab(t);
     setError('');
     setSuccess('');
+    setUsernameStatus(null);
   }
 
   return (
@@ -950,9 +1031,11 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
+        {/* Back/close button — fixed top-left on mobile, top-right on desktop */}
+        <button className="modal-close" onClick={onClose} aria-label="Close">
+          ←
         </button>
+
         <div className="modal-logo">
           Kasa<span>Point</span>
         </div>
@@ -1003,14 +1086,62 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         {tab === 'signup' && (
           <div className="form-group">
             <label className="form-label">Username</label>
-            <input
-              className="form-input"
-              placeholder="e.g. KofiAccra"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. kofi_mensah"
+                value={username}
+                onChange={(e) =>
+                  setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))
+                }
+                maxLength={30}
+                style={{
+                  paddingRight: 36,
+                  borderColor:
+                    usernameStatus === 'taken'
+                      ? 'var(--red)'
+                      : usernameStatus === 'available'
+                        ? 'var(--green)'
+                        : undefined,
+                }}
+                autoComplete="username"
+              />
+              {usernameStatus === 'checking' && (
+                <span className="username-status checking">···</span>
+              )}
+              {usernameStatus === 'available' && (
+                <span className="username-status ok">✓</span>
+              )}
+              {usernameStatus === 'taken' && (
+                <span className="username-status taken">✕</span>
+              )}
+            </div>
+            {usernameStatus === 'taken' && (
+              <div
+                style={{
+                  fontSize: '.72rem',
+                  color: 'var(--red)',
+                  marginTop: 4,
+                }}
+              >
+                Username already taken
+              </div>
+            )}
+            {usernameStatus === 'available' && (
+              <div
+                style={{
+                  fontSize: '.72rem',
+                  color: 'var(--green)',
+                  marginTop: 4,
+                }}
+              >
+                ✓ Username available
+              </div>
+            )}
           </div>
         )}
+
         <div className="form-group">
           <label className="form-label">Email Address</label>
           <input
@@ -1019,8 +1150,10 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
           />
         </div>
+
         <div className="form-group">
           <label className="form-label">Password</label>
           <div className="pw-wrap">
@@ -1034,6 +1167,9 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
                 e.key === 'Enter' && !e.shiftKey && handleSubmit()
               }
               style={{ paddingRight: 52 }}
+              autoComplete={
+                tab === 'login' ? 'current-password' : 'new-password'
+              }
             />
             <button
               className="pw-toggle"
@@ -1063,6 +1199,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             </>
           )}
         </div>
+
         {tab === 'signup' && (
           <div className="form-group">
             <label className="form-label">Confirm Password</label>
@@ -1078,15 +1215,18 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
                   borderColor:
                     confirmPw && confirmPw !== password
                       ? 'var(--red)'
-                      : undefined,
+                      : confirmPw && confirmPw === password
+                        ? 'var(--green)'
+                        : undefined,
                 }}
+                autoComplete="new-password"
               />
             </div>
           </div>
         )}
 
         {error && <div className="form-error">⚠ {error}</div>}
-        {success && <div className="form-success">✓ {success}</div>}
+        {success && <div className="form-success">{success}</div>}
 
         <div className="form-check" style={{ marginTop: 12 }}>
           <input
@@ -1101,10 +1241,10 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         <button
           className="btn btn-gold btn-full"
           onClick={handleSubmit}
-          disabled={loading}
+          disabled={loading || (tab === 'signup' && usernameStatus === 'taken')}
         >
           {loading
-            ? 'Please wait...'
+            ? 'Please wait…'
             : tab === 'login'
               ? 'Sign In'
               : 'Create Account'}
