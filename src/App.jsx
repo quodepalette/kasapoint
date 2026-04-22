@@ -70,7 +70,7 @@ const sb = {
     );
     return r.json();
   },
-  async sendMessage(token, roomId, userId, username, content) {
+  async sendMessage(token, roomId, userId, username, content, replyTo) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/messages`, {
       method: 'POST',
       headers: {
@@ -84,6 +84,9 @@ const sb = {
         user_id: userId,
         username,
         content,
+        reply_to_id: replyTo?.id || null,
+        reply_to_username: replyTo?.username || null,
+        reply_to_content: replyTo?.content || null,
       }),
     });
     return r.json();
@@ -112,7 +115,15 @@ const sb = {
     );
     return r.json();
   },
-  async sendDM(token, fromId, toId, fromUsername, toUsername, content) {
+  async sendDM(
+    token,
+    fromId,
+    toId,
+    fromUsername,
+    toUsername,
+    content,
+    replyTo,
+  ) {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/direct_messages`, {
       method: 'POST',
       headers: {
@@ -127,8 +138,51 @@ const sb = {
         from_username: fromUsername,
         to_username: toUsername,
         content,
+        reply_to_id: replyTo?.id || null,
+        reply_to_username: replyTo?.username || null,
+        reply_to_content: replyTo?.content || null,
       }),
     });
+    return r.json();
+  },
+  async usernameAvailable(username) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/username_available`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ uname: username.trim().toLowerCase() }),
+    });
+    return r.json(); // returns true if available
+  },
+  async searchUsers(token, query) {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/search_users_by_username`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ search_query: query.trim().toLowerCase() }),
+      },
+    );
+    // Fallback: try querying profiles table directly
+    if (!r.ok) {
+      const r2 = await fetch(
+        `${SUPABASE_URL}/rest/v1/profiles?username=ilike.*${encodeURIComponent(query)}*&select=id,username&limit=10`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+        },
+      );
+      if (r2.ok) return r2.json();
+      return [];
+    }
     return r.json();
   },
   async markDMsRead(token, fromId, toId) {
@@ -144,6 +198,46 @@ const sb = {
         body: JSON.stringify({ is_read: true }),
       },
     );
+  },
+  async editMessage(token, id, content) {
+    await fetch(`${SUPABASE_URL}/rest/v1/messages?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ content, edited_at: new Date().toISOString() }),
+    });
+  },
+  async deleteMessage(token, id) {
+    await fetch(`${SUPABASE_URL}/rest/v1/messages?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+    });
+  },
+  async editDM(token, id, content) {
+    await fetch(`${SUPABASE_URL}/rest/v1/direct_messages?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ content, edited_at: new Date().toISOString() }),
+    });
+  },
+  async deleteDM(token, id) {
+    await fetch(`${SUPABASE_URL}/rest/v1/direct_messages?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+    });
   },
 };
 
@@ -310,7 +404,12 @@ const css = `
   /* ── MODAL ── */
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;animation:fadeIn .2s ease}
   .modal{background:var(--sur);border-radius:24px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 24px 80px rgba(0,0,0,.2);animation:slideUp .3s ease;position:relative;max-height:90vh;overflow-y:auto}
-  .modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:none;background:var(--sur2);cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;transition:background .2s}.modal-close:hover{background:var(--bdr)}
+  @media(max-width:600px){
+    .modal-overlay{align-items:stretch;padding:0;background:var(--bg);backdrop-filter:none}
+    .modal{border-radius:0;min-height:100dvh;height:auto;max-height:none;padding:72px 24px 56px;overflow-y:auto;box-shadow:none;animation:fadeIn .25s ease}
+    .modal-close{position:fixed;top:16px;left:16px;right:auto;z-index:10;background:var(--sur2)}
+  }
+  .modal-close{position:absolute;top:16px;right:16px;width:36px;height:36px;border-radius:50%;border:none;background:var(--sur2);cursor:pointer;font-size:.85rem;font-weight:700;display:flex;align-items:center;justify-content:center;transition:background .2s;color:var(--soft)}.modal-close:hover{background:var(--bdr)}
   .modal-logo{font-family:'GFS Didot',serif;font-size:1.6rem;font-weight:900;text-align:center;margin-bottom:6px}.modal-logo span{color:var(--gold)}
   .modal-sub{text-align:center;color:var(--muted);font-size:.875rem;margin-bottom:24px}
   .modal-tabs{display:flex;background:var(--sur2);border-radius:12px;padding:4px;margin-bottom:20px}
@@ -332,6 +431,11 @@ const css = `
   .btn-full{width:100%;padding:13px;font-size:.95rem;border-radius:14px}
   .terms-note{font-size:.75rem;color:var(--muted);text-align:center;margin-top:14px;line-height:1.5}
   .terms-note a{color:var(--gold);text-decoration:none}
+  /* username availability indicator */
+  .username-status{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:.82rem;font-weight:700;pointer-events:none}
+  .username-status.ok{color:var(--green)}
+  .username-status.taken{color:var(--red)}
+  .username-status.checking{color:var(--muted);letter-spacing:1px}
 
   /* ── APP LAYOUT ── */
   .app-layout{display:flex;height:100vh;overflow:hidden;background:var(--bg)}
@@ -383,8 +487,8 @@ const css = `
   .signout-btn:hover{border-color:var(--red);color:var(--red);background:rgba(206,17,38,.04)}
 
   /* ── CHAT AREA ── */
-  .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
-  .chat-header{padding:12px 24px;border-bottom:1px solid var(--bdr);background:var(--sur);display:flex;align-items:center;gap:14px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+  .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden;height:100vh}
+  .chat-header{flex-shrink:0;padding:12px 24px;border-bottom:1px solid var(--bdr);background:var(--sur);display:flex;align-items:center;gap:14px;box-shadow:0 1px 4px rgba(0,0,0,.04);z-index:10}
   .chat-room-icon{font-size:1.5rem}
   .chat-header-info{flex:1}
   .chat-room-name{font-weight:700;font-size:.95rem}.chat-room-desc{font-size:.75rem;color:var(--muted)}
@@ -405,7 +509,7 @@ const css = `
   .welcome-kente{height:3px;border-radius:2px;margin-top:10px;background:repeating-linear-gradient(90deg,var(--red) 0,var(--red) 12px,var(--gold) 12px,var(--gold) 24px,var(--green) 24px,var(--green) 36px,#fff 36px,#fff 48px)}
 
   /* ── MESSAGES ── */
-  .messages-area{flex:1;overflow-y:auto;padding:16px 24px;display:flex;flex-direction:column;gap:2px}
+  .messages-area{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 24px;display:flex;flex-direction:column;gap:2px;min-height:0;-webkit-overflow-scrolling:touch}
   .msg-date-divider{text-align:center;font-size:.72rem;color:var(--muted);margin:10px 0;display:flex;align-items:center;gap:12px}
   .msg-date-divider::before,.msg-date-divider::after{content:'';flex:1;height:1px;background:var(--bdr)}
   .msg-group{margin-bottom:12px}
@@ -414,20 +518,303 @@ const css = `
   .msg-sender-name{font-size:.75rem;font-weight:600;color:var(--soft);cursor:pointer;transition:color .15s}.msg-sender-name:hover{color:var(--gold-d)}
   .msg-sender-time{font-size:.7rem;color:var(--muted)}
   .msg-row{display:flex;align-items:flex-start;gap:10px}
-  .msg-bubble{background:var(--sur);border:1px solid var(--bdr);border-radius:4px 16px 16px 16px;padding:9px 13px;max-width:560px;font-size:.875rem;line-height:1.55;color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.04);animation:fadeUp .15s ease}
+  .msg-bubble{background:var(--sur);border:1px solid var(--bdr);border-radius:4px 16px 16px 16px;padding:9px 13px;max-width:min(560px,calc(100% - 70px));font-size:.875rem;line-height:1.55;color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.04);animation:fadeUp .15s ease;word-break:break-word;overflow-wrap:anywhere;min-width:0}
   .msg-bubble.own{background:linear-gradient(135deg,var(--gold),#E8C040);border-color:transparent;color:#1A1A1A;border-radius:16px 4px 16px 16px;margin-left:auto}
   .msg-own-row{justify-content:flex-end}
   .msg-indent{margin-left:36px}
   .msg-time-small{font-size:.67rem;color:var(--muted);margin-top:2px}
   .msg-avatar-clickable{cursor:pointer;transition:opacity .15s}.msg-avatar-clickable:hover{opacity:.8}
 
-  /* ── CHAT INPUT ── */
-  .chat-input-area{padding:12px 24px;background:var(--sur);border-top:1px solid var(--bdr);display:flex;align-items:center;gap:10px}
+ /* ── LOBBY AREA ── */
+.lobby-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--bg);
+
+  /* FIX: prevent centering from parent flex layouts */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* ── GREETING ── */
+.lobby-greeting {
+  margin-bottom: 24px;
+}
+
+.lobby-greeting h2 {
+  font-family: 'GFS Didot', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.lobby-greeting p {
+  font-size: .875rem;
+  color: var(--muted);
+}
+
+/* ── SECTION LABEL ── */
+.lobby-section-label {
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* ── ROOMS GRID ── */
+.lobby-rooms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+
+  /* FIX: force grid alignment to left */
+  justify-content: start;
+  width: 100%;
+}
+
+/* ── ROOM CARD ── */
+.lobby-room-card {
+  background: var(--sur);
+  border: 1.5px solid var(--bdr);
+  border-radius: 18px;
+  padding: 18px 14px 14px;
+  cursor: pointer;
+  transition: all .22s;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+
+  /* FIX: ensure text is left aligned */
+  text-align: left;
+
+  /* FIX: prevent shrinking weird centering effects */
+  width: 100%;
+}
+
+.lobby-room-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 6px 24px rgba(212,175,55,.18);
+  transform: translateY(-2px);
+}
+
+/* ── ROOM CONTENT ── */
+.lobby-room-emoji {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.lobby-room-name {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--txt);
+  line-height: 1.3;
+}
+
+.lobby-room-desc {
+  font-size: .7rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* ── BADGE ── */
+.lobby-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--red);
+  color: #fff;
+  font-size: .6rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+/* ── DMS ── */
+.lobby-dms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lobby-dm-card {
+  background: var(--sur);
+  border: 1.5px solid var(--bdr);
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all .2s;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+}
+
+.lobby-dm-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 4px 16px rgba(212,175,55,.12);
+}
+
+.lobby-dm-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-dm-name {
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.lobby-dm-preview {
+  font-size: .75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lobby-dm-time {
+  font-size: .68rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+  /* ── REPLY SYSTEM ── */
+  .msg-row-wrap{position:relative;display:flex;flex-direction:column}
+  .msg-row-wrap:hover .msg-actions{opacity:1}
+
+  /* ── MESSAGE ACTIONS (reply · edit · delete) ── */
+  .msg-actions{opacity:0;display:flex;align-items:center;gap:3px;flex-shrink:0;transition:opacity .15s}
+  @media(max-width:700px){.msg-actions{opacity:1}}
+  .msg-reply-btn{background:var(--sur);border:1px solid var(--bdr);border-radius:7px;padding:0;width:26px;height:26px;font-size:.78rem;cursor:pointer;color:var(--soft);transition:all .15s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .msg-reply-btn:hover{background:var(--sur2);color:var(--txt);border-color:var(--gold)}
+  .msg-act-btn{width:26px;height:26px;border-radius:7px;border:1px solid var(--bdr);background:var(--sur);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;color:var(--muted);padding:0;flex-shrink:0}
+  .msg-act-btn:hover{background:var(--sur2);color:var(--txt);border-color:var(--gold)}
+  .msg-act-btn.del:hover{background:rgba(206,17,38,.08);color:var(--red);border-color:var(--red)}
+  .msg-act-btn svg,.msg-reply-btn svg{width:13px;height:13px;fill:currentColor;display:block}
+
+  /* ── INLINE EDIT ── */
+  .msg-edit-wrap{display:flex;flex-direction:column;gap:6px;min-width:200px;max-width:min(520px,calc(100% - 8px))}
+  .msg-edit-input{padding:9px 12px;border:1.5px solid var(--gold);border-radius:12px;font-family:'Outfit',sans-serif;font-size:.875rem;background:var(--bg);color:var(--txt);outline:none;resize:none;line-height:1.55;box-shadow:0 0 0 3px rgba(212,175,55,.1)}
+  .msg-edit-actions{display:flex;gap:6px;justify-content:flex-end}
+  .msg-edit-save{padding:5px 16px;background:var(--gold);color:#fff;border:none;border-radius:8px;font-family:'Outfit',sans-serif;font-size:.75rem;font-weight:600;cursor:pointer;transition:background .15s}
+  .msg-edit-save:hover{background:var(--gold-d)}
+  .msg-edit-cancel{padding:5px 12px;background:var(--sur2);color:var(--soft);border:1px solid var(--bdr);border-radius:8px;font-family:'Outfit',sans-serif;font-size:.75rem;cursor:pointer;transition:background .15s}
+  .msg-edit-cancel:hover{background:var(--bdr)}
+  .msg-edited-tag{font-size:.62rem;color:var(--muted);font-style:italic;margin-left:4px}
+  .reply-preview{background:var(--sur2);border-left:3px solid var(--gold);border-radius:0 8px 8px 0;padding:5px 10px;margin-bottom:4px;font-size:.75rem;color:var(--soft);max-width:min(420px,100%);cursor:pointer;min-width:0;overflow:hidden}
+  .reply-preview:hover{background:var(--bdr)}
+  .reply-preview .reply-author{font-weight:600;color:var(--gold-d);margin-bottom:1px;font-size:.7rem}
+  .reply-preview .reply-text{color:var(--soft);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;max-width:100%}
+  .reply-bar{flex-shrink:0;background:var(--sur2);border-top:1px solid var(--bdr);padding:8px 16px;display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--soft)}
+  .reply-bar-content{flex:1;min-width:0}
+  .reply-bar-author{font-weight:600;color:var(--gold-d);font-size:.75rem}
+  .reply-bar-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.78rem;color:var(--muted)}
+  .reply-bar-close{background:none;border:none;cursor:pointer;color:var(--muted);font-size:1.1rem;padding:2px 6px;transition:color .15s}.reply-bar-close:hover{color:var(--red)}
+  .reply-bar-icon{font-size:1rem;flex-shrink:0;color:var(--gold)}
   .chat-input{flex:1;padding:10px 18px;border:1.5px solid var(--bdr);border-radius:100px;font-family:'Outfit',sans-serif;font-size:.875rem;background:var(--bg);color:var(--txt);outline:none;transition:border-color .2s}
   .chat-input:focus{border-color:var(--gold)}
   .send-btn{width:40px;height:40px;border-radius:50%;background:var(--gold);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;box-shadow:0 2px 8px rgba(212,175,55,.4)}
   .send-btn:hover{background:var(--gold-d);transform:scale(1.06)}.send-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
   .send-btn svg{width:15px;height:15px;fill:#fff}
+
+  /* ── CHAT INPUT WRAPPER ── */
+.chat-input-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 10px 12px;
+  border-top: 1px solid var(--bdr);
+  background: var(--bg);
+
+  /* IMPORTANT: prevents full-width stacking issues */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── INPUT ── */
+.chat-input {
+  flex: 1;
+  min-width: 0; /* IMPORTANT: prevents overflow pushing button down */
+
+  padding: 10px 18px;
+  border: 1.5px solid var(--bdr);
+  border-radius: 999px;
+
+  font-family: 'Outfit', sans-serif;
+  font-size: .875rem;
+
+  background: var(--sur);
+  color: var(--txt);
+
+  outline: none;
+  transition: border-color .2s;
+}
+
+.chat-input:focus {
+  border-color: var(--gold);
+}
+
+/* ── SEND BUTTON ── */
+.send-btn {
+  flex-shrink: 0; /* IMPORTANT: prevents wrapping under input */
+
+  width: 42px;
+  height: 42px;
+
+  border-radius: 50%;
+  border: 1.5px solid var(--bdr);
+  background: var(--sur);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  cursor: pointer;
+
+  transition: all .2s ease;
+}
+
+.send-btn:hover {
+  border-color: var(--gold);
+  box-shadow: 0 4px 14px rgba(212, 175, 55, .15);
+}
+
+.send-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.send-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--txt);
+}
+
+  /* ── DM SEARCH ── */
+  .dm-search-wrap{padding:10px 12px 6px;position:relative}
+  .dm-search-input{width:100%;padding:8px 14px 8px 34px;border:1.5px solid var(--bdr);border-radius:100px;font-family:'Outfit',sans-serif;font-size:.82rem;background:var(--sur2);color:var(--txt);outline:none;transition:border-color .2s,background .2s}
+  .dm-search-input:focus{border-color:var(--gold);background:var(--sur)}
+  .dm-search-icon{position:absolute;left:22px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;pointer-events:none}
+  .dm-search-clear{position:absolute;right:22px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);font-size:.9rem;padding:2px 4px;line-height:1;transition:color .15s}.dm-search-clear:hover{color:var(--txt)}
+  .dm-search-results{padding:4px 10px}
+  .dm-search-item{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-radius:10px;border:none;background:transparent;width:100%;text-align:left;transition:background .15s;margin-bottom:2px}
+  .dm-search-item:hover{background:var(--sur2)}
+  .dm-search-label{font-size:.72rem;color:var(--muted);padding:6px 14px 2px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+  .dm-search-new-badge{font-size:.65rem;background:var(--sur3);color:var(--soft);padding:2px 7px;border-radius:100px;margin-left:auto;flex-shrink:0}
 
   /* ── PROFILE POPUP ── */
   .profile-popup-overlay{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.3);backdrop-filter:blur(4px);animation:fadeIn .15s ease}
@@ -468,6 +855,7 @@ const css = `
     .notif-banner{margin:10px 14px 0}
     .cta-section{margin:0 12px 60px;padding:48px 24px}
   }
+
 
   /* ── ANIMATIONS ── */
   @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -532,14 +920,38 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState(null); // null|'checking'|'available'|'taken'
 
   const strength = pwStrength(password);
   const strengthColors = ['#bbb', '#CE1126', '#f59e0b', '#D4AF37', '#006B3F'];
   const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
 
+  // Debounced live username availability check
+  useEffect(() => {
+    if (
+      tab !== 'signup' ||
+      username.length < 3 ||
+      !/^[a-zA-Z0-9_]+$/.test(username)
+    ) {
+      setUsernameStatus(null);
+      return;
+    }
+    setUsernameStatus('checking');
+    const t = setTimeout(async () => {
+      try {
+        const ok = await sb.usernameAvailable(username);
+        setUsernameStatus(ok ? 'available' : 'taken');
+      } catch {
+        setUsernameStatus(null);
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [username, tab]);
+
   async function handleSubmit() {
     setError('');
     setSuccess('');
+
     if (tab === 'signup') {
       if (!username.trim()) {
         setError('Please choose a username');
@@ -547,6 +959,14 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       }
       if (username.trim().length < 3) {
         setError('Username must be at least 3 characters');
+        return;
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
+        setError('Username can only use letters, numbers, and underscores (_)');
+        return;
+      }
+      if (usernameStatus === 'taken') {
+        setError('That username is already taken - please choose another');
         return;
       }
       if (password !== confirmPw) {
@@ -558,8 +978,25 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         return;
       }
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Please enter a valid email');
+    // Replace your current regex with this stricter one
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    // Block obvious disposable domains
+    const disposable = [
+      'mailinator.com',
+      'guerrillamail.com',
+      'tempmail.com',
+      'throwaway.email',
+      'yopmail.com',
+    ];
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (disposable.includes(domain)) {
+      setError(
+        'Please use a real email address - disposable emails are not allowed',
+      );
       return;
     }
     if (password.length < 6) {
@@ -569,21 +1006,51 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
 
     setLoading(true);
     try {
+      // Final username availability check right before creating account
+      if (tab === 'signup') {
+        const ok = await sb.usernameAvailable(username.trim());
+        if (!ok) {
+          setError('That username was just taken - please pick another');
+          setLoading(false);
+          return;
+        }
+      }
+
       const data =
         tab === 'login'
           ? await sb.signIn(email, password)
-          : await sb.signUp(email, password, username);
+          : await sb.signUp(email, password, username.trim());
 
-      const errMsg = data.error?.message || data.error_description || data.msg;
-      if (errMsg) {
-        setError(errMsg);
+      const raw = data.error?.message || data.error_description || data.msg;
+      if (raw) {
+        const msg = raw.toLowerCase();
+        if (
+          msg.includes('already registered') ||
+          msg.includes('already been registered')
+        ) {
+          setError('This email is already registered - try signing in instead');
+        } else if (
+          msg.includes('invalid login credentials') ||
+          msg.includes('invalid credentials')
+        ) {
+          setError('Incorrect email or password - please try again');
+        } else if (msg.includes('email not confirmed')) {
+          setError(
+            "Your email isn't confirmed yet - check your inbox for the confirmation link",
+          );
+        } else if (msg.includes('rate limit') || msg.includes('too many')) {
+          setError('Too many attempts - please wait a moment and try again');
+        } else {
+          setError(raw);
+        }
         setLoading(false);
         return;
       }
 
+      // Email confirmation required (no access_token yet)
       if (!data.access_token) {
         setSuccess(
-          'Account created! Check your email to confirm, then sign in.',
+          "Account created! 🎉 We've sent a confirmation link to your email - click it to activate your account, then sign in.",
         );
         setLoading(false);
         return;
@@ -594,15 +1061,17 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       if (!user.user_metadata.username) {
         user.user_metadata.username =
           tab === 'signup'
-            ? username
-            : user.user_metadata.full_name || email.split('@')[0];
+            ? username.trim()
+            : user.user_metadata.full_name ||
+              user.user_metadata.name ||
+              email.split('@')[0];
       }
       const store = stayIn ? localStorage : sessionStorage;
       store.setItem('gchat_token', data.access_token);
       store.setItem('gchat_user', JSON.stringify(user));
       onAuth(user, data.access_token);
     } catch {
-      setError('Network error — please check your connection.');
+      setError('Network error - please check your connection and try again');
     }
     setLoading(false);
   }
@@ -611,6 +1080,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
     setTab(t);
     setError('');
     setSuccess('');
+    setUsernameStatus(null);
   }
 
   return (
@@ -619,9 +1089,11 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="modal">
-        <button className="modal-close" onClick={onClose}>
-          ✕
+        {/* Back/close button — fixed top-left on mobile, top-right on desktop */}
+        <button className="modal-close" onClick={onClose} aria-label="Close">
+          ←
         </button>
+
         <div className="modal-logo">
           Kasa<span>Point</span>
         </div>
@@ -672,14 +1144,62 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         {tab === 'signup' && (
           <div className="form-group">
             <label className="form-label">Username</label>
-            <input
-              className="form-input"
-              placeholder="e.g. KofiAccra"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. kofi_mensah"
+                value={username}
+                onChange={(e) =>
+                  setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))
+                }
+                maxLength={30}
+                style={{
+                  paddingRight: 36,
+                  borderColor:
+                    usernameStatus === 'taken'
+                      ? 'var(--red)'
+                      : usernameStatus === 'available'
+                        ? 'var(--green)'
+                        : undefined,
+                }}
+                autoComplete="username"
+              />
+              {usernameStatus === 'checking' && (
+                <span className="username-status checking">···</span>
+              )}
+              {usernameStatus === 'available' && (
+                <span className="username-status ok">✓</span>
+              )}
+              {usernameStatus === 'taken' && (
+                <span className="username-status taken">✕</span>
+              )}
+            </div>
+            {usernameStatus === 'taken' && (
+              <div
+                style={{
+                  fontSize: '.72rem',
+                  color: 'var(--red)',
+                  marginTop: 4,
+                }}
+              >
+                Username already taken
+              </div>
+            )}
+            {usernameStatus === 'available' && (
+              <div
+                style={{
+                  fontSize: '.72rem',
+                  color: 'var(--green)',
+                  marginTop: 4,
+                }}
+              >
+                ✓ Username available
+              </div>
+            )}
           </div>
         )}
+
         <div className="form-group">
           <label className="form-label">Email Address</label>
           <input
@@ -688,8 +1208,10 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
           />
         </div>
+
         <div className="form-group">
           <label className="form-label">Password</label>
           <div className="pw-wrap">
@@ -703,6 +1225,9 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
                 e.key === 'Enter' && !e.shiftKey && handleSubmit()
               }
               style={{ paddingRight: 52 }}
+              autoComplete={
+                tab === 'login' ? 'current-password' : 'new-password'
+              }
             />
             <button
               className="pw-toggle"
@@ -732,6 +1257,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             </>
           )}
         </div>
+
         {tab === 'signup' && (
           <div className="form-group">
             <label className="form-label">Confirm Password</label>
@@ -747,15 +1273,18 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
                   borderColor:
                     confirmPw && confirmPw !== password
                       ? 'var(--red)'
-                      : undefined,
+                      : confirmPw && confirmPw === password
+                        ? 'var(--green)'
+                        : undefined,
                 }}
+                autoComplete="new-password"
               />
             </div>
           </div>
         )}
 
         {error && <div className="form-error">⚠ {error}</div>}
-        {success && <div className="form-success">✓ {success}</div>}
+        {success && <div className="form-success">{success}</div>}
 
         <div className="form-check" style={{ marginTop: 12 }}>
           <input
@@ -770,7 +1299,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         <button
           className="btn btn-gold btn-full"
           onClick={handleSubmit}
-          disabled={loading}
+          disabled={loading || (tab === 'signup' && usernameStatus === 'taken')}
         >
           {loading
             ? 'Please wait...'
@@ -796,19 +1325,28 @@ function ChatScreen({ user, token, onLogout }) {
   const [dmConversations, setDmConversations] = useState([]);
   const [activeDm, setActiveDm] = useState(null); // { userId, username }
   const [dmMessages, setDmMessages] = useState([]);
-  const [view, setView] = useState('room'); // 'room' | 'dm'
+  const [view, setView] = useState('lobby'); // 'lobby' | 'room' | 'dm'
   const [input, setInput] = useState('');
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [sending, setSending] = useState(false);
+  const [replyTo, setReplyTo] = useState(null); // { id, username, content }
+  const [editingMsg, setEditingMsg] = useState(null); // { id, type:'room'|'dm' }
+  const [editInput, setEditInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profilePopup, setProfilePopup] = useState(null);
   const [notifDismissed, setNotifDismissed] = useState(false);
   const [totalUnread, setTotalUnread] = useState(0);
+  const [roomUnread, setRoomUnread] = useState({}); // roomId -> count
+  const [dmSearch, setDmSearch] = useState('');
+  const [dmSearchResults, setDmSearchResults] = useState([]); // [{id, username}]
+  const [dmSearchLoading, setDmSearchLoading] = useState(false);
   const bottomRef = useRef(null);
+  const messagesAreaRef = useRef(null);
   const roomPollRef = useRef(null);
   const dmPollRef = useRef(null);
   const knownDmIds = useRef(new Set());
+  const userScrolledUp = useRef(false);
   const notifPermission =
     typeof Notification !== 'undefined' ? Notification.permission : 'denied';
 
@@ -847,10 +1385,9 @@ function ChatScreen({ user, token, onLogout }) {
         const list =
           Array.isArray(data) && data.length > 0 ? data : FALLBACK_ROOMS;
         setRooms(list);
-        setActiveRoom(list[0]);
+        // Don't auto-select a room — start on lobby
       } catch {
         setRooms(FALLBACK_ROOMS);
-        setActiveRoom(FALLBACK_ROOMS[0]);
       }
       setLoadingRooms(false);
     }
@@ -861,6 +1398,10 @@ function ChatScreen({ user, token, onLogout }) {
   useEffect(() => {
     if (!activeRoom || view !== 'room') return;
     clearInterval(roomPollRef.current);
+    userScrolledUp.current = false;
+    // Immediately scroll to bottom on room change
+    if (messagesAreaRef.current)
+      messagesAreaRef.current.scrollTop = messagesAreaRef.current.scrollHeight;
     async function fetch() {
       try {
         const data = await sb.getMessages(token, activeRoom.id);
@@ -918,21 +1459,29 @@ function ChatScreen({ user, token, onLogout }) {
     }
     setDmMessages([]);
     fetchThread();
+    userScrolledUp.current = false;
     const t = setInterval(fetchThread, 3000);
     // Mark read when opening conversation
     sb.markDMsRead(token, activeDm.userId, user.id).catch(() => {});
     return () => clearInterval(t);
   }, [activeDm, view, token, user.id]);
 
-  // Auto-scroll
+  // Smart auto-scroll: only scroll to bottom if user is already near bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesAreaRef.current;
+    if (!el) return;
+    if (!userScrolledUp.current) {
+      // Use scrollTop directly instead of scrollIntoView to avoid fighting user scroll
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages, dmMessages]);
 
   async function sendMessage() {
     const content = input.trim();
     if (!content || sending) return;
     setInput('');
+    const currentReply = replyTo;
+    setReplyTo(null);
     setSending(true);
     if (view === 'room' && activeRoom) {
       const opt = {
@@ -941,10 +1490,21 @@ function ChatScreen({ user, token, onLogout }) {
         content,
         created_at: new Date().toISOString(),
         optimistic: true,
+        reply_to_id: currentReply?.id || null,
+        reply_to_username: currentReply?.username || null,
+        reply_to_content: currentReply?.content || null,
       };
       setMessages((p) => [...p, opt]);
+      userScrolledUp.current = false;
       try {
-        await sb.sendMessage(token, activeRoom.id, user.id, username, content);
+        await sb.sendMessage(
+          token,
+          activeRoom.id,
+          user.id,
+          username,
+          content,
+          currentReply,
+        );
         const fresh = await sb.getMessages(token, activeRoom.id);
         if (Array.isArray(fresh)) setMessages(fresh);
       } catch {}
@@ -955,8 +1515,12 @@ function ChatScreen({ user, token, onLogout }) {
         from_username: username,
         content,
         created_at: new Date().toISOString(),
+        reply_to_id: currentReply?.id || null,
+        reply_to_username: currentReply?.username || null,
+        reply_to_content: currentReply?.content || null,
       };
       setDmMessages((p) => [...p, opt]);
+      userScrolledUp.current = false;
       try {
         await sb.sendDM(
           token,
@@ -965,6 +1529,7 @@ function ChatScreen({ user, token, onLogout }) {
           username,
           activeDm.username,
           content,
+          currentReply,
         );
         const fresh = await sb.getDMThread(token, user.id, activeDm.userId);
         if (Array.isArray(fresh)) setDmMessages(fresh);
@@ -973,7 +1538,107 @@ function ChatScreen({ user, token, onLogout }) {
     setSending(false);
   }
 
+  async function handleEditMsg(id, type) {
+    const content = editInput.trim();
+    if (!content) return;
+    setEditingMsg(null);
+    const now = new Date().toISOString();
+    if (type === 'room') {
+      setMessages((p) =>
+        p.map((m) => (m.id === id ? { ...m, content, edited_at: now } : m)),
+      );
+      try {
+        await sb.editMessage(token, id, content);
+      } catch {}
+    } else {
+      setDmMessages((p) =>
+        p.map((m) => (m.id === id ? { ...m, content, edited_at: now } : m)),
+      );
+      try {
+        await sb.editDM(token, id, content);
+      } catch {}
+    }
+  }
+
+  async function handleDeleteMsg(id, type) {
+    if (type === 'room') {
+      setMessages((p) => p.filter((m) => m.id !== id));
+      try {
+        await sb.deleteMessage(token, id);
+      } catch {}
+    } else {
+      setDmMessages((p) => p.filter((m) => m.id !== id));
+      try {
+        await sb.deleteDM(token, id);
+      } catch {}
+    }
+  }
+
+  function startEdit(msg, type) {
+    setEditingMsg({ id: msg.id, type });
+    setEditInput(msg.content);
+  }
+
+  function handleMessagesScroll(e) {
+    const el = e.currentTarget;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Consider user "scrolled up" if more than 120px from bottom
+    // This threshold is larger for mobile fat-finger tolerance
+    userScrolledUp.current = distFromBottom > 120;
+  }
+
+  // Debounced DM user search
+  useEffect(() => {
+    if (dmSearch.trim().length < 2) {
+      setDmSearchResults([]);
+      return;
+    }
+    setDmSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        // Search through existing DM conversations first
+        const localMatches = dmConversations.filter((c) =>
+          c.username.toLowerCase().includes(dmSearch.trim().toLowerCase()),
+        );
+        // Also try server-side search for users not yet in DM list
+        const serverResults = await sb.searchUsers(token, dmSearch.trim());
+        const serverUsers = Array.isArray(serverResults)
+          ? serverResults.filter(
+              (u) =>
+                u.id !== user.id &&
+                !localMatches.find((c) => c.userId === u.id),
+            )
+          : [];
+        // Merge: local DM contacts first, then new users from server
+        const merged = [
+          ...localMatches.map((c) => ({
+            id: c.userId,
+            username: c.username,
+            inDms: true,
+          })),
+          ...serverUsers.map((u) => ({
+            id: u.id,
+            username: u.username,
+            inDms: false,
+          })),
+        ];
+        setDmSearchResults(merged);
+      } catch {
+        // Fallback: just filter existing conversations
+        const localMatches = dmConversations
+          .filter((c) =>
+            c.username.toLowerCase().includes(dmSearch.trim().toLowerCase()),
+          )
+          .map((c) => ({ id: c.userId, username: c.username, inDms: true }));
+        setDmSearchResults(localMatches);
+      }
+      setDmSearchLoading(false);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [dmSearch, dmConversations, token, user.id]);
+
   function openDm(userId, uname) {
+    userScrolledUp.current = false;
     setActiveDm({ userId, username: uname });
     setView('dm');
     setSidebarTab('dms');
@@ -1028,9 +1693,22 @@ function ChatScreen({ user, token, onLogout }) {
         <div className="kente" />
         <div className="sidebar-top">
           <div className="sidebar-brand">
-            <span className="sidebar-logo">
-              Kasa<span>Point</span>
-            </span>
+            <button
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+              onClick={() => {
+                setView('lobby');
+                setSidebarOpen(false);
+              }}
+            >
+              <span className="sidebar-logo">
+                Kasa<span>Point</span>
+              </span>
+            </button>
           </div>
           <div className="profile-card">
             <div
@@ -1095,69 +1773,166 @@ function ChatScreen({ user, token, onLogout }) {
             )}
           </div>
         ) : (
-          <div className="dm-list">
-            {dmConversations.length === 0 ? (
-              <div className="dm-empty">
-                <div className="dm-empty-icon">💬</div>
-                <p>
-                  No messages yet.
-                  <br />
-                  Click a username in a chat to start a conversation.
-                </p>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              flex: 1,
+              minHeight: 0,
+            }}
+          >
+            {/* Search bar */}
+            <div className="dm-search-wrap">
+              <span className="dm-search-icon">🔍</span>
+              <input
+                className="dm-search-input"
+                type="text"
+                placeholder="Search by username..."
+                value={dmSearch}
+                onChange={(e) => setDmSearch(e.target.value)}
+              />
+              {dmSearch && (
+                <button
+                  className="dm-search-clear"
+                  onClick={() => {
+                    setDmSearch('');
+                    setDmSearchResults([]);
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Search results OR conversation list */}
+            {dmSearch.trim().length >= 2 ? (
+              <div
+                className="dm-search-results"
+                style={{ flex: 1, overflowY: 'auto' }}
+              >
+                {dmSearchLoading ? (
+                  <div className="loading-dots">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ) : dmSearchResults.length === 0 ? (
+                  <div className="dm-empty">
+                    <div className="dm-empty-icon">🔎</div>
+                    <p>No users found for &quot;{dmSearch}&quot;</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="dm-search-label">Users</div>
+                    {dmSearchResults.map((u) => (
+                      <button
+                        key={u.id}
+                        className="dm-search-item"
+                        onClick={() => {
+                          openDm(u.id, u.username);
+                          setDmSearch('');
+                          setDmSearchResults([]);
+                        }}
+                      >
+                        <div
+                          className="dm-av"
+                          style={{ background: avatarColor(u.username) }}
+                        >
+                          {getInitials(u.username)}
+                        </div>
+                        <div className="dm-info">
+                          <div className="dm-name">{u.username}</div>
+                          <div className="dm-preview">
+                            {u.inDms
+                              ? 'Existing conversation'
+                              : 'Start a new chat'}
+                          </div>
+                        </div>
+                        {!u.inDms && (
+                          <span className="dm-search-new-badge">New</span>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             ) : (
-              dmConversations.map((conv) => (
-                <button
-                  key={conv.userId}
-                  className={`dm-item ${view === 'dm' && activeDm?.userId === conv.userId ? 'active' : ''}`}
-                  onClick={() => openDm(conv.userId, conv.username)}
-                >
-                  <div
-                    className="dm-av"
-                    style={{ background: avatarColor(conv.username) }}
-                  >
-                    {getInitials(conv.username)}
+              <div className="dm-list">
+                {dmConversations.length === 0 ? (
+                  <div className="dm-empty">
+                    <div className="dm-empty-icon">💬</div>
+                    <p>
+                      No messages yet.
+                      <br />
+                      Search a username above to start a conversation.
+                    </p>
                   </div>
-                  <div className="dm-info">
-                    <div className="dm-name">{conv.username}</div>
-                    <div className="dm-preview">
-                      {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
-                      {conv.lastMsg.content}
-                    </div>
-                  </div>
-                  <div className="dm-meta">
-                    <span className="dm-time">
-                      {timeAgo(conv.lastMsg.created_at)}
-                    </span>
-                    {conv.unread > 0 && (
-                      <span className="unread-badge">{conv.unread}</span>
-                    )}
-                  </div>
-                </button>
-              ))
+                ) : (
+                  dmConversations.map((conv) => (
+                    <button
+                      key={conv.userId}
+                      className={`dm-item ${view === 'dm' && activeDm?.userId === conv.userId ? 'active' : ''}`}
+                      onClick={() => openDm(conv.userId, conv.username)}
+                    >
+                      <div
+                        className="dm-av"
+                        style={{ background: avatarColor(conv.username) }}
+                      >
+                        {getInitials(conv.username)}
+                      </div>
+                      <div className="dm-info">
+                        <div className="dm-name">{conv.username}</div>
+                        <div className="dm-preview">
+                          {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
+                          {conv.lastMsg.content}
+                        </div>
+                      </div>
+                      <div className="dm-meta">
+                        <span className="dm-time">
+                          {timeAgo(conv.lastMsg.created_at)}
+                        </span>
+                        {conv.unread > 0 && (
+                          <span className="unread-badge">{conv.unread}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
             )}
           </div>
         )}
 
         <div className="sidebar-footer">
           <button className="signout-btn" onClick={onLogout}>
-            <span>⎋</span> Sign Out
+            <span>&#x238B;</span> Sign Out
           </button>
         </div>
       </div>
 
       {/* ── MAIN AREA ── */}
       <div className="chat-area">
-        <div className="kente" />
+        <div className="kente" style={{ flexShrink: 0 }} />
 
-        {/* Header */}
+        {/* Header — always visible */}
         <div className="chat-header">
           <button className="hamburger" onClick={() => setSidebarOpen(true)}>
             <span />
             <span />
             <span />
           </button>
-          {view === 'dm' && activeDm ? (
+          {view === 'lobby' && (
+            <>
+              <div className="chat-room-icon">🇬🇭</div>
+              <div className="chat-header-info">
+                <div className="chat-room-name">KasaPoint</div>
+                <div className="chat-room-desc">
+                  Choose a room or conversation
+                </div>
+              </div>
+            </>
+          )}
+          {view === 'dm' && activeDm && (
             <>
               <div
                 className="msg-avatar"
@@ -1175,25 +1950,29 @@ function ChatScreen({ user, token, onLogout }) {
                 <div className="chat-room-desc">Private conversation</div>
               </div>
               <div className="chat-header-right">
-                <button className="back-btn" onClick={() => setView('room')}>
-                  ← Rooms
+                <button className="back-btn" onClick={() => setView('lobby')}>
+                  ← Home
                 </button>
               </div>
             </>
-          ) : (
+          )}
+          {view === 'room' && activeRoom && (
             <>
               <div className="chat-room-icon">
-                {activeRoom?.name.split(' ')[0]}
+                {activeRoom.name.split(' ')[0]}
               </div>
               <div className="chat-header-info">
                 <div className="chat-room-name">
-                  {activeRoom?.name.slice(
-                    (activeRoom?.name.indexOf(' ') ?? -1) + 1,
+                  {activeRoom.name.slice(
+                    (activeRoom.name.indexOf(' ') ?? -1) + 1,
                   )}
                 </div>
-                <div className="chat-room-desc">{activeRoom?.description}</div>
+                <div className="chat-room-desc">{activeRoom.description}</div>
               </div>
               <div className="chat-header-right">
+                <button className="back-btn" onClick={() => setView('lobby')}>
+                  ← Home
+                </button>
                 <span className="member-count">🟢 Live</span>
               </div>
             </>
@@ -1202,7 +1981,7 @@ function ChatScreen({ user, token, onLogout }) {
 
         {/* Notification permission banner */}
         {showNotifBanner && (
-          <div className="notif-banner">
+          <div className="notif-banner" style={{ flexShrink: 0 }}>
             <span style={{ fontSize: '1.2rem' }}>🔔</span>
             <div className="notif-banner-text">
               <strong>Enable notifications</strong> to know when you receive
@@ -1226,11 +2005,107 @@ function ChatScreen({ user, token, onLogout }) {
           </div>
         )}
 
+        {/* ── LOBBY VIEW ── */}
+        {view === 'lobby' && (
+          <div className="lobby-area">
+            <div className="lobby-greeting">
+              <h2>Akwaaba, {username}!</h2>
+              <p>Pick up where you left off or jump into a new conversation.</p>
+            </div>
+
+            <div className="lobby-section-label">Chat Rooms</div>
+            {loadingRooms ? (
+              <div className="loading-dots">
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : (
+              <div className="lobby-rooms-grid">
+                {rooms.map((r) => (
+                  <button
+                    key={r.id}
+                    className="lobby-room-card"
+                    onClick={() => {
+                      setActiveRoom(r);
+                      setView('room');
+                      setSidebarOpen(false);
+                    }}
+                  >
+                    <div className="lobby-room-emoji">
+                      {r.name.split(' ')[0]}
+                    </div>
+                    <div className="lobby-room-name">
+                      {r.name.slice(r.name.indexOf(' ') + 1)}
+                    </div>
+                    {r.description && (
+                      <div className="lobby-room-desc">{r.description}</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {dmConversations.length > 0 && (
+              <>
+                <div className="lobby-section-label" style={{ marginTop: 8 }}>
+                  Recent Messages
+                </div>
+                <div className="lobby-dms-list">
+                  {dmConversations.slice(0, 5).map((conv) => (
+                    <button
+                      key={conv.userId}
+                      className="lobby-dm-card"
+                      onClick={() => openDm(conv.userId, conv.username)}
+                    >
+                      <div
+                        className="dm-av"
+                        style={{
+                          background: avatarColor(conv.username),
+                          width: 38,
+                          height: 38,
+                          fontSize: '.7rem',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {getInitials(conv.username)}
+                      </div>
+                      <div className="lobby-dm-info">
+                        <div className="lobby-dm-name">{conv.username}</div>
+                        <div className="lobby-dm-preview">
+                          {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
+                          {conv.lastMsg.content}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-end',
+                          gap: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span className="lobby-dm-time">
+                          {timeAgo(conv.lastMsg.created_at)}
+                        </span>
+                        {conv.unread > 0 && (
+                          <span className="unread-badge">{conv.unread}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* ── ROOM VIEW ── */}
         {view === 'room' && (
           <>
             {!loadingMsgs && messages.length === 0 && (
-              <div className="welcome-banner">
+              <div className="welcome-banner" style={{ flexShrink: 0 }}>
                 <div className="welcome-text">
                   <h3>Welcome to {activeRoom?.name}!</h3>
                   <p>Be the first to say something, {username}! 🎉</p>
@@ -1238,7 +2113,11 @@ function ChatScreen({ user, token, onLogout }) {
                 </div>
               </div>
             )}
-            <div className="messages-area">
+            <div
+              className="messages-area"
+              ref={messagesAreaRef}
+              onScroll={handleMessagesScroll}
+            >
               {loadingMsgs ? (
                 <div
                   style={{
@@ -1292,17 +2171,138 @@ function ChatScreen({ user, token, onLogout }) {
                       {group.messages.map((msg, mi) => (
                         <div
                           key={msg.id || mi}
-                          className={`msg-row ${isOwn ? 'msg-own-row' : 'msg-indent'}`}
+                          className={`msg-row-wrap ${isOwn ? 'own' : ''}`}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: isOwn ? 'flex-end' : 'flex-start',
+                            marginLeft: isOwn ? 0 : 36,
+                            marginRight: isOwn ? 4 : 0,
+                            position: 'relative',
+                          }}
                         >
-                          <div className={`msg-bubble ${isOwn ? 'own' : ''}`}>
-                            {msg.content}
-                          </div>
+                          {msg.reply_to_id && (
+                            <div
+                              className="reply-preview"
+                              style={{
+                                alignSelf: isOwn ? 'flex-end' : 'flex-start',
+                              }}
+                            >
+                              <div className="reply-author">
+                                ↩ {msg.reply_to_username}
+                              </div>
+                              <div className="reply-text">
+                                {msg.reply_to_content}
+                              </div>
+                            </div>
+                          )}
+                          {editingMsg?.id === msg.id ? (
+                            <div
+                              className="msg-edit-wrap"
+                              style={{
+                                alignSelf: isOwn ? 'flex-end' : 'flex-start',
+                              }}
+                            >
+                              <textarea
+                                className="msg-edit-input"
+                                value={editInput}
+                                onChange={(e) => setEditInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleEditMsg(msg.id, 'room');
+                                  }
+                                  if (e.key === 'Escape') setEditingMsg(null);
+                                }}
+                                autoFocus
+                                rows={2}
+                              />
+                              <div className="msg-edit-actions">
+                                <button
+                                  className="msg-edit-cancel"
+                                  onClick={() => setEditingMsg(null)}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  className="msg-edit-save"
+                                  onClick={() => handleEditMsg(msg.id, 'room')}
+                                >
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                flexDirection: isOwn ? 'row-reverse' : 'row',
+                                maxWidth: '100%',
+                              }}
+                            >
+                              <div
+                                className={`msg-bubble ${isOwn ? 'own' : ''}`}
+                              >
+                                {msg.content}
+                                {msg.edited_at && (
+                                  <span className="msg-edited-tag">
+                                    · edited
+                                  </span>
+                                )}
+                              </div>
+                              <div className="msg-actions">
+                                <button
+                                  className="msg-reply-btn"
+                                  title="Reply"
+                                  onClick={() =>
+                                    setReplyTo({
+                                      id: msg.id,
+                                      username: msg.username || group.sender,
+                                      content: msg.content,
+                                    })
+                                  }
+                                >
+                                  <svg viewBox="0 0 24 24">
+                                    <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+                                  </svg>
+                                </button>
+                                {isOwn && (
+                                  <>
+                                    <button
+                                      className="msg-act-btn"
+                                      title="Edit"
+                                      onClick={() => startEdit(msg, 'room')}
+                                    >
+                                      <svg viewBox="0 0 24 24">
+                                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      className="msg-act-btn del"
+                                      title="Delete"
+                                      onClick={() =>
+                                        handleDeleteMsg(msg.id, 'room')
+                                      }
+                                    >
+                                      <svg viewBox="0 0 24 24">
+                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                                      </svg>
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                       <div
-                        className={`msg-time-small ${isOwn ? 'msg-indent' : 'msg-indent'}`}
+                        className="msg-time-small"
                         style={
-                          isOwn ? { textAlign: 'right', marginRight: 4 } : {}
+                          isOwn
+                            ? { textAlign: 'right', marginRight: 4 }
+                            : { marginLeft: 36 }
                         }
                       >
                         {timeAgo(
@@ -1321,7 +2321,11 @@ function ChatScreen({ user, token, onLogout }) {
 
         {/* ── DM VIEW ── */}
         {view === 'dm' && (
-          <div className="messages-area">
+          <div
+            className="messages-area"
+            ref={messagesAreaRef}
+            onScroll={handleMessagesScroll}
+          >
             {dmMessages.length === 0 && (
               <div className="empty-state">
                 <div className="big-emoji">💬</div>
@@ -1353,11 +2357,117 @@ function ChatScreen({ user, token, onLogout }) {
                     </div>
                   )}
                   <div
-                    className={`msg-row ${isOwn ? 'msg-own-row' : 'msg-indent'}`}
+                    className="msg-row-wrap"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: isOwn ? 'flex-end' : 'flex-start',
+                      marginLeft: isOwn ? 0 : 36,
+                      marginRight: isOwn ? 4 : 0,
+                    }}
                   >
-                    <div className={`msg-bubble ${isOwn ? 'own' : ''}`}>
-                      {msg.content}
-                    </div>
+                    {msg.reply_to_id && (
+                      <div
+                        className="reply-preview"
+                        style={{ alignSelf: isOwn ? 'flex-end' : 'flex-start' }}
+                      >
+                        <div className="reply-author">
+                          ↩ {msg.reply_to_username}
+                        </div>
+                        <div className="reply-text">{msg.reply_to_content}</div>
+                      </div>
+                    )}
+                    {editingMsg?.id === msg.id ? (
+                      <div
+                        className="msg-edit-wrap"
+                        style={{ alignSelf: isOwn ? 'flex-end' : 'flex-start' }}
+                      >
+                        <textarea
+                          className="msg-edit-input"
+                          value={editInput}
+                          onChange={(e) => setEditInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleEditMsg(msg.id, 'dm');
+                            }
+                            if (e.key === 'Escape') setEditingMsg(null);
+                          }}
+                          autoFocus
+                          rows={2}
+                        />
+                        <div className="msg-edit-actions">
+                          <button
+                            className="msg-edit-cancel"
+                            onClick={() => setEditingMsg(null)}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="msg-edit-save"
+                            onClick={() => handleEditMsg(msg.id, 'dm')}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          flexDirection: isOwn ? 'row-reverse' : 'row',
+                          maxWidth: '100%',
+                        }}
+                      >
+                        <div className={`msg-bubble ${isOwn ? 'own' : ''}`}>
+                          {msg.content}
+                          {msg.edited_at && (
+                            <span className="msg-edited-tag">· edited</span>
+                          )}
+                        </div>
+                        <div className="msg-actions">
+                          <button
+                            className="msg-reply-btn"
+                            title="Reply"
+                            onClick={() =>
+                              setReplyTo({
+                                id: msg.id,
+                                username: isOwn ? username : msg.from_username,
+                                content: msg.content,
+                              })
+                            }
+                          >
+                            <svg viewBox="0 0 24 24">
+                              <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+                            </svg>
+                          </button>
+                          {isOwn && (
+                            <>
+                              <button
+                                className="msg-act-btn"
+                                title="Edit"
+                                onClick={() => startEdit(msg, 'dm')}
+                              >
+                                <svg viewBox="0 0 24 24">
+                                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                </svg>
+                              </button>
+                              <button
+                                className="msg-act-btn del"
+                                title="Delete"
+                                onClick={() => handleDeleteMsg(msg.id, 'dm')}
+                              >
+                                <svg viewBox="0 0 24 24">
+                                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                                </svg>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {(i === dmMessages.length - 1 ||
                     dmMessages[i + 1]?.from_user_id !== msg.from_user_id) && (
@@ -1379,29 +2489,53 @@ function ChatScreen({ user, token, onLogout }) {
           </div>
         )}
 
-        {/* Input */}
-        <div className="chat-input-area">
-          <input
-            className="chat-input"
-            placeholder={
-              view === 'dm'
-                ? `Message ${activeDm?.username ?? ''}...`
-                : `Message ${activeRoom?.name ?? ''}...`
-            }
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-          />
-          <button
-            className="send-btn"
-            onClick={sendMessage}
-            disabled={!input.trim() || sending}
-          >
-            <svg viewBox="0 0 24 24">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
-        </div>
+        {/* Reply bar — shown when replying to a message */}
+        {replyTo && view !== 'lobby' && (
+          <div className="reply-bar">
+            <span className="reply-bar-icon">↩</span>
+            <div className="reply-bar-content">
+              <div className="reply-bar-author">
+                Replying to {replyTo.username}
+              </div>
+              <div className="reply-bar-text">{replyTo.content}</div>
+            </div>
+            <button
+              className="reply-bar-close"
+              onClick={() => setReplyTo(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Input — hidden on lobby */}
+        {view !== 'lobby' && (
+          <div className="chat-input-area">
+            <input
+              className="chat-input"
+              placeholder={
+                view === 'dm'
+                  ? `Message ${activeDm?.username ?? ''}...`
+                  : `Message ${activeRoom?.name ?? ''}...`
+              }
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === 'Enter' && !e.shiftKey && sendMessage()
+              }
+              autoFocus
+            />
+            <button
+              className="send-btn"
+              onClick={sendMessage}
+              disabled={!input.trim() || sending}
+            >
+              <svg viewBox="0 0 24 24">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1438,7 +2572,7 @@ function HomePage({ onShowAuth }) {
     {
       icon: '👑',
       name: 'KasaPoint Pro',
-      desc: 'Voice notes, file sharing, stickers & more — coming soon.',
+      desc: 'Voice notes, file sharing, stickers & more - coming soon.',
       soon: true,
     },
   ];
@@ -1458,14 +2592,14 @@ function HomePage({ onShowAuth }) {
         </h1>
         <p className="hero-sub">
           Connect with Ghanaians at home and abroad. Chat publicly or privately
-          — in a safe, beautiful space.
+          - in a safe, beautiful space.
         </p>
         <div className="hero-cta">
           <button
             className="btn btn-gold btn-hero"
             onClick={() => onShowAuth('signup')}
           >
-            Join Free — m'adamfo!
+            Join Free - m'adamfo!
           </button>
           <button
             className="btn btn-outline btn-hero"
@@ -1491,7 +2625,7 @@ function HomePage({ onShowAuth }) {
         <span className="section-tag">Explore</span>
         <h2 className="section-title">Find your community</h2>
         <p style={{ color: '#6B6560', marginTop: 12, fontSize: '.95rem' }}>
-          From football to food, music to money — there's a room for everyone.
+          From football to food, music to money - there's a room for everyone.
         </p>
         <div className="rooms-preview">
           {FALLBACK_ROOMS.map((r) => (
@@ -1603,7 +2737,7 @@ export default function App() {
               );
               setBooting(false);
               setToast({
-                msg: `Akwaaba ${u.user_metadata.username}! 🇬🇭`,
+                msg: `Akwaaba ${u.user_metadata.username}!`,
                 type: 'success',
               });
               return;
@@ -1635,7 +2769,7 @@ export default function App() {
     setShowAuth(null);
     const name = u.user_metadata?.username || u.email?.split('@')[0];
     setToast({
-      msg: `Akwaaba ${name}! Welcome to KasaPoint 🇬🇭`,
+      msg: `Akwaaba ${name}! Welcome to KasaPoint`,
       type: 'success',
     });
   }
