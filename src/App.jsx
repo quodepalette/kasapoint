@@ -156,6 +156,35 @@ const sb = {
     });
     return r.json(); // returns true if available
   },
+  async searchUsers(token, query) {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/search_users_by_username`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ search_query: query.trim().toLowerCase() }),
+      },
+    );
+    // Fallback: try querying profiles table directly
+    if (!r.ok) {
+      const r2 = await fetch(
+        `${SUPABASE_URL}/rest/v1/profiles?username=ilike.*${encodeURIComponent(query)}*&select=id,username&limit=10`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+        },
+      );
+      if (r2.ok) return r2.json();
+      return [];
+    }
+    return r.json();
+  },
   async markDMsRead(token, fromId, toId) {
     await fetch(
       `${SUPABASE_URL}/rest/v1/direct_messages?from_user_id=eq.${fromId}&to_user_id=eq.${toId}&is_read=eq.false`,
@@ -458,7 +487,7 @@ const css = `
   .signout-btn:hover{border-color:var(--red);color:var(--red);background:rgba(206,17,38,.04)}
 
   /* ── CHAT AREA ── */
-  .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden}
+  .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden;height:100vh}
   .chat-header{flex-shrink:0;padding:12px 24px;border-bottom:1px solid var(--bdr);background:var(--sur);display:flex;align-items:center;gap:14px;box-shadow:0 1px 4px rgba(0,0,0,.04);z-index:10}
   .chat-room-icon{font-size:1.5rem}
   .chat-header-info{flex:1}
@@ -480,7 +509,7 @@ const css = `
   .welcome-kente{height:3px;border-radius:2px;margin-top:10px;background:repeating-linear-gradient(90deg,var(--red) 0,var(--red) 12px,var(--gold) 12px,var(--gold) 24px,var(--green) 24px,var(--green) 36px,#fff 36px,#fff 48px)}
 
   /* ── MESSAGES ── */
-  .messages-area{flex:1;overflow-y:auto;padding:16px 24px;display:flex;flex-direction:column;gap:2px}
+  .messages-area{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 24px;display:flex;flex-direction:column;gap:2px;min-height:0;-webkit-overflow-scrolling:touch}
   .msg-date-divider{text-align:center;font-size:.72rem;color:var(--muted);margin:10px 0;display:flex;align-items:center;gap:12px}
   .msg-date-divider::before,.msg-date-divider::after{content:'';flex:1;height:1px;background:var(--bdr)}
   .msg-group{margin-bottom:12px}
@@ -775,6 +804,18 @@ const css = `
   fill: var(--txt);
 }
 
+  /* ── DM SEARCH ── */
+  .dm-search-wrap{padding:10px 12px 6px;position:relative}
+  .dm-search-input{width:100%;padding:8px 14px 8px 34px;border:1.5px solid var(--bdr);border-radius:100px;font-family:'Outfit',sans-serif;font-size:.82rem;background:var(--sur2);color:var(--txt);outline:none;transition:border-color .2s,background .2s}
+  .dm-search-input:focus{border-color:var(--gold);background:var(--sur)}
+  .dm-search-icon{position:absolute;left:22px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;pointer-events:none}
+  .dm-search-clear{position:absolute;right:22px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--muted);font-size:.9rem;padding:2px 4px;line-height:1;transition:color .15s}.dm-search-clear:hover{color:var(--txt)}
+  .dm-search-results{padding:4px 10px}
+  .dm-search-item{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-radius:10px;border:none;background:transparent;width:100%;text-align:left;transition:background .15s;margin-bottom:2px}
+  .dm-search-item:hover{background:var(--sur2)}
+  .dm-search-label{font-size:.72rem;color:var(--muted);padding:6px 14px 2px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+  .dm-search-new-badge{font-size:.65rem;background:var(--sur3);color:var(--soft);padding:2px 7px;border-radius:100px;margin-left:auto;flex-shrink:0}
+
   /* ── PROFILE POPUP ── */
   .profile-popup-overlay{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.3);backdrop-filter:blur(4px);animation:fadeIn .15s ease}
   .profile-popup{background:var(--sur);border-radius:20px;padding:28px 24px;width:100%;max-width:320px;box-shadow:0 16px 60px rgba(0,0,0,.18);animation:slideUp .2s ease;position:relative}
@@ -925,7 +966,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         return;
       }
       if (usernameStatus === 'taken') {
-        setError('That username is already taken — please choose another');
+        setError('That username is already taken - please choose another');
         return;
       }
       if (password !== confirmPw) {
@@ -937,8 +978,25 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         return;
       }
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // Replace your current regex with this stricter one
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
       setError('Please enter a valid email address');
+      return;
+    }
+    // Block obvious disposable domains
+    const disposable = [
+      'mailinator.com',
+      'guerrillamail.com',
+      'tempmail.com',
+      'throwaway.email',
+      'yopmail.com',
+    ];
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (disposable.includes(domain)) {
+      setError(
+        'Please use a real email address - disposable emails are not allowed',
+      );
       return;
     }
     if (password.length < 6) {
@@ -952,7 +1010,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       if (tab === 'signup') {
         const ok = await sb.usernameAvailable(username.trim());
         if (!ok) {
-          setError('That username was just taken — please pick another');
+          setError('That username was just taken - please pick another');
           setLoading(false);
           return;
         }
@@ -970,18 +1028,18 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
           msg.includes('already registered') ||
           msg.includes('already been registered')
         ) {
-          setError('This email is already registered — try signing in instead');
+          setError('This email is already registered - try signing in instead');
         } else if (
           msg.includes('invalid login credentials') ||
           msg.includes('invalid credentials')
         ) {
-          setError('Incorrect email or password — please try again');
+          setError('Incorrect email or password - please try again');
         } else if (msg.includes('email not confirmed')) {
           setError(
-            "Your email isn't confirmed yet — check your inbox for the confirmation link",
+            "Your email isn't confirmed yet - check your inbox for the confirmation link",
           );
         } else if (msg.includes('rate limit') || msg.includes('too many')) {
-          setError('Too many attempts — please wait a moment and try again');
+          setError('Too many attempts - please wait a moment and try again');
         } else {
           setError(raw);
         }
@@ -992,7 +1050,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       // Email confirmation required (no access_token yet)
       if (!data.access_token) {
         setSuccess(
-          "Account created! 🎉 We've sent a confirmation link to your email — click it to activate your account, then sign in.",
+          "Account created! 🎉 We've sent a confirmation link to your email - click it to activate your account, then sign in.",
         );
         setLoading(false);
         return;
@@ -1013,7 +1071,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       store.setItem('gchat_user', JSON.stringify(user));
       onAuth(user, data.access_token);
     } catch {
-      setError('Network error — please check your connection and try again');
+      setError('Network error - please check your connection and try again');
     }
     setLoading(false);
   }
@@ -1244,7 +1302,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
           disabled={loading || (tab === 'signup' && usernameStatus === 'taken')}
         >
           {loading
-            ? 'Please wait…'
+            ? 'Please wait...'
             : tab === 'login'
               ? 'Sign In'
               : 'Create Account'}
@@ -1280,6 +1338,9 @@ function ChatScreen({ user, token, onLogout }) {
   const [notifDismissed, setNotifDismissed] = useState(false);
   const [totalUnread, setTotalUnread] = useState(0);
   const [roomUnread, setRoomUnread] = useState({}); // roomId -> count
+  const [dmSearch, setDmSearch] = useState('');
+  const [dmSearchResults, setDmSearchResults] = useState([]); // [{id, username}]
+  const [dmSearchLoading, setDmSearchLoading] = useState(false);
   const bottomRef = useRef(null);
   const messagesAreaRef = useRef(null);
   const roomPollRef = useRef(null);
@@ -1338,6 +1399,9 @@ function ChatScreen({ user, token, onLogout }) {
     if (!activeRoom || view !== 'room') return;
     clearInterval(roomPollRef.current);
     userScrolledUp.current = false;
+    // Immediately scroll to bottom on room change
+    if (messagesAreaRef.current)
+      messagesAreaRef.current.scrollTop = messagesAreaRef.current.scrollHeight;
     async function fetch() {
       try {
         const data = await sb.getMessages(token, activeRoom.id);
@@ -1402,10 +1466,13 @@ function ChatScreen({ user, token, onLogout }) {
     return () => clearInterval(t);
   }, [activeDm, view, token, user.id]);
 
-  // Smart auto-scroll: only scroll to bottom if user hasn't scrolled up
+  // Smart auto-scroll: only scroll to bottom if user is already near bottom
   useEffect(() => {
+    const el = messagesAreaRef.current;
+    if (!el) return;
     if (!userScrolledUp.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      // Use scrollTop directly instead of scrollIntoView to avoid fighting user scroll
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages, dmMessages]);
 
@@ -1515,10 +1582,63 @@ function ChatScreen({ user, token, onLogout }) {
   function handleMessagesScroll(e) {
     const el = e.currentTarget;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    userScrolledUp.current = distFromBottom > 80;
+    // Consider user "scrolled up" if more than 120px from bottom
+    // This threshold is larger for mobile fat-finger tolerance
+    userScrolledUp.current = distFromBottom > 120;
   }
 
+  // Debounced DM user search
+  useEffect(() => {
+    if (dmSearch.trim().length < 2) {
+      setDmSearchResults([]);
+      return;
+    }
+    setDmSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        // Search through existing DM conversations first
+        const localMatches = dmConversations.filter((c) =>
+          c.username.toLowerCase().includes(dmSearch.trim().toLowerCase()),
+        );
+        // Also try server-side search for users not yet in DM list
+        const serverResults = await sb.searchUsers(token, dmSearch.trim());
+        const serverUsers = Array.isArray(serverResults)
+          ? serverResults.filter(
+              (u) =>
+                u.id !== user.id &&
+                !localMatches.find((c) => c.userId === u.id),
+            )
+          : [];
+        // Merge: local DM contacts first, then new users from server
+        const merged = [
+          ...localMatches.map((c) => ({
+            id: c.userId,
+            username: c.username,
+            inDms: true,
+          })),
+          ...serverUsers.map((u) => ({
+            id: u.id,
+            username: u.username,
+            inDms: false,
+          })),
+        ];
+        setDmSearchResults(merged);
+      } catch {
+        // Fallback: just filter existing conversations
+        const localMatches = dmConversations
+          .filter((c) =>
+            c.username.toLowerCase().includes(dmSearch.trim().toLowerCase()),
+          )
+          .map((c) => ({ id: c.userId, username: c.username, inDms: true }));
+        setDmSearchResults(localMatches);
+      }
+      setDmSearchLoading(false);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [dmSearch, dmConversations, token, user.id]);
+
   function openDm(userId, uname) {
+    userScrolledUp.current = false;
     setActiveDm({ userId, username: uname });
     setView('dm');
     setSidebarTab('dms');
@@ -1653,53 +1773,139 @@ function ChatScreen({ user, token, onLogout }) {
             )}
           </div>
         ) : (
-          <div className="dm-list">
-            {dmConversations.length === 0 ? (
-              <div className="dm-empty">
-                <div className="dm-empty-icon">💬</div>
-                <p>
-                  No messages yet.
-                  <br />
-                  Click a username in a chat to start a conversation.
-                </p>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              flex: 1,
+              minHeight: 0,
+            }}
+          >
+            {/* Search bar */}
+            <div className="dm-search-wrap">
+              <span className="dm-search-icon">🔍</span>
+              <input
+                className="dm-search-input"
+                type="text"
+                placeholder="Search by username..."
+                value={dmSearch}
+                onChange={(e) => setDmSearch(e.target.value)}
+              />
+              {dmSearch && (
+                <button
+                  className="dm-search-clear"
+                  onClick={() => {
+                    setDmSearch('');
+                    setDmSearchResults([]);
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Search results OR conversation list */}
+            {dmSearch.trim().length >= 2 ? (
+              <div
+                className="dm-search-results"
+                style={{ flex: 1, overflowY: 'auto' }}
+              >
+                {dmSearchLoading ? (
+                  <div className="loading-dots">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ) : dmSearchResults.length === 0 ? (
+                  <div className="dm-empty">
+                    <div className="dm-empty-icon">🔎</div>
+                    <p>No users found for &quot;{dmSearch}&quot;</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="dm-search-label">Users</div>
+                    {dmSearchResults.map((u) => (
+                      <button
+                        key={u.id}
+                        className="dm-search-item"
+                        onClick={() => {
+                          openDm(u.id, u.username);
+                          setDmSearch('');
+                          setDmSearchResults([]);
+                        }}
+                      >
+                        <div
+                          className="dm-av"
+                          style={{ background: avatarColor(u.username) }}
+                        >
+                          {getInitials(u.username)}
+                        </div>
+                        <div className="dm-info">
+                          <div className="dm-name">{u.username}</div>
+                          <div className="dm-preview">
+                            {u.inDms
+                              ? 'Existing conversation'
+                              : 'Start a new chat'}
+                          </div>
+                        </div>
+                        {!u.inDms && (
+                          <span className="dm-search-new-badge">New</span>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             ) : (
-              dmConversations.map((conv) => (
-                <button
-                  key={conv.userId}
-                  className={`dm-item ${view === 'dm' && activeDm?.userId === conv.userId ? 'active' : ''}`}
-                  onClick={() => openDm(conv.userId, conv.username)}
-                >
-                  <div
-                    className="dm-av"
-                    style={{ background: avatarColor(conv.username) }}
-                  >
-                    {getInitials(conv.username)}
+              <div className="dm-list">
+                {dmConversations.length === 0 ? (
+                  <div className="dm-empty">
+                    <div className="dm-empty-icon">💬</div>
+                    <p>
+                      No messages yet.
+                      <br />
+                      Search a username above to start a conversation.
+                    </p>
                   </div>
-                  <div className="dm-info">
-                    <div className="dm-name">{conv.username}</div>
-                    <div className="dm-preview">
-                      {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
-                      {conv.lastMsg.content}
-                    </div>
-                  </div>
-                  <div className="dm-meta">
-                    <span className="dm-time">
-                      {timeAgo(conv.lastMsg.created_at)}
-                    </span>
-                    {conv.unread > 0 && (
-                      <span className="unread-badge">{conv.unread}</span>
-                    )}
-                  </div>
-                </button>
-              ))
+                ) : (
+                  dmConversations.map((conv) => (
+                    <button
+                      key={conv.userId}
+                      className={`dm-item ${view === 'dm' && activeDm?.userId === conv.userId ? 'active' : ''}`}
+                      onClick={() => openDm(conv.userId, conv.username)}
+                    >
+                      <div
+                        className="dm-av"
+                        style={{ background: avatarColor(conv.username) }}
+                      >
+                        {getInitials(conv.username)}
+                      </div>
+                      <div className="dm-info">
+                        <div className="dm-name">{conv.username}</div>
+                        <div className="dm-preview">
+                          {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
+                          {conv.lastMsg.content}
+                        </div>
+                      </div>
+                      <div className="dm-meta">
+                        <span className="dm-time">
+                          {timeAgo(conv.lastMsg.created_at)}
+                        </span>
+                        {conv.unread > 0 && (
+                          <span className="unread-badge">{conv.unread}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
             )}
           </div>
         )}
 
         <div className="sidebar-footer">
           <button className="signout-btn" onClick={onLogout}>
-            <span>⎋</span> Sign Out
+            <span>&#x238B;</span> Sign Out
           </button>
         </div>
       </div>
@@ -1907,7 +2113,11 @@ function ChatScreen({ user, token, onLogout }) {
                 </div>
               </div>
             )}
-            <div className="messages-area" onScroll={handleMessagesScroll}>
+            <div
+              className="messages-area"
+              ref={messagesAreaRef}
+              onScroll={handleMessagesScroll}
+            >
               {loadingMsgs ? (
                 <div
                   style={{
@@ -2111,7 +2321,11 @@ function ChatScreen({ user, token, onLogout }) {
 
         {/* ── DM VIEW ── */}
         {view === 'dm' && (
-          <div className="messages-area" onScroll={handleMessagesScroll}>
+          <div
+            className="messages-area"
+            ref={messagesAreaRef}
+            onScroll={handleMessagesScroll}
+          >
             {dmMessages.length === 0 && (
               <div className="empty-state">
                 <div className="big-emoji">💬</div>
@@ -2358,7 +2572,7 @@ function HomePage({ onShowAuth }) {
     {
       icon: '👑',
       name: 'KasaPoint Pro',
-      desc: 'Voice notes, file sharing, stickers & more — coming soon.',
+      desc: 'Voice notes, file sharing, stickers & more - coming soon.',
       soon: true,
     },
   ];
@@ -2378,14 +2592,14 @@ function HomePage({ onShowAuth }) {
         </h1>
         <p className="hero-sub">
           Connect with Ghanaians at home and abroad. Chat publicly or privately
-          — in a safe, beautiful space.
+          - in a safe, beautiful space.
         </p>
         <div className="hero-cta">
           <button
             className="btn btn-gold btn-hero"
             onClick={() => onShowAuth('signup')}
           >
-            Join Free — m'adamfo!
+            Join Free - m'adamfo!
           </button>
           <button
             className="btn btn-outline btn-hero"
@@ -2411,7 +2625,7 @@ function HomePage({ onShowAuth }) {
         <span className="section-tag">Explore</span>
         <h2 className="section-title">Find your community</h2>
         <p style={{ color: '#6B6560', marginTop: 12, fontSize: '.95rem' }}>
-          From football to food, music to money — there's a room for everyone.
+          From football to food, music to money - there's a room for everyone.
         </p>
         <div className="rooms-preview">
           {FALLBACK_ROOMS.map((r) => (
