@@ -537,7 +537,7 @@ const css = `
   .msg-sender-name{font-size:.75rem;font-weight:600;color:var(--soft);cursor:pointer;transition:color .15s}.msg-sender-name:hover{color:var(--gold-d)}
   .msg-sender-time{font-size:.7rem;color:var(--muted)}
   .msg-row{display:flex;align-items:flex-start;gap:10px}
-  .msg-bubble{background:var(--sur);border:1px solid var(--bdr);border-radius:4px 16px 16px 16px;padding:9px 13px;max-width:min(560px,calc(100% - 70px));font-size:.875rem;line-height:1.55;color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.04);animation:fadeUp .15s ease;word-break:break-word;overflow-wrap:anywhere;min-width:0}
+  .msg-bubble{background:var(--sur);border:1px solid var(--bdr);border-radius:4px 16px 16px 16px;padding:9px 13px;max-width:min(600px,calc(100% - 10px));font-size:.875rem;line-height:1.55;color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.04);animation:fadeUp .15s ease;word-break:break-word;overflow-wrap:anywhere;min-width:0}
   .msg-bubble.own{background:linear-gradient(135deg,var(--gold),#E8C040);border-color:transparent;color:#1A1A1A;border-radius:16px 4px 16px 16px;margin-left:auto}
   .msg-own-row{justify-content:flex-end}
   .msg-indent{margin-left:36px}
@@ -1910,7 +1910,7 @@ function ChatScreen({ user, token, onLogout }) {
             {joinedDate && (
               <div className="profile-joined">Joined {joinedDate}</div>
             )}
-            <div className="online-pill">Online</div>
+            <div className="online-pill">Online</div>&nbsp;&nbsp;
             <button
               className="change-username-btn"
               onClick={() => setShowUsernameModal(true)}
