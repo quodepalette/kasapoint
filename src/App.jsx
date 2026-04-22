@@ -268,7 +268,7 @@ const FALLBACK_ROOMS = [
     description: 'Open discussion for all Ghanaians',
   },
   { id: '2', name: '🎵 Highlife & Afrobeats', description: 'Music talk' },
-  { id: '3', name: '⚽ Black Stars', description: 'Ghana football forever' },
+  { id: '3', name: '⚽ Football', description: 'Football fans unite' },
   {
     id: '4',
     name: '💼 Business & Hustle',
@@ -1132,7 +1132,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         </button>
 
         <div className="modal-logo">
-          Kasa<span>Point</span>
+          Kasa<span>Point</span> &bull;
         </div>
         <p className="modal-sub">
           {tab === 'login'
@@ -1895,7 +1895,7 @@ function ChatScreen({ user, token, onLogout }) {
               }}
             >
               <span className="sidebar-logo">
-                Kasa<span>Point</span>
+                Kasa<span>Point</span> &bull;
               </span>
             </button>
           </div>
@@ -2124,9 +2124,13 @@ function ChatScreen({ user, token, onLogout }) {
           </button>
           {view === 'lobby' && (
             <>
-              <div className="chat-room-icon">🇬🇭</div>
+              <div className="chat-room-icon">
+                K<span style={{ color: 'var(--gold)' }}>P</span>
+              </div>
               <div className="chat-header-info">
-                <div className="chat-room-name">KasaPoint</div>
+                <div className="chat-room-name">
+                  Kasa<span style={{ color: 'var(--gold)' }}>Point</span> &bull;
+                </div>
                 <div className="chat-room-desc">
                   Choose a room or conversation
                 </div>
@@ -2210,7 +2214,10 @@ function ChatScreen({ user, token, onLogout }) {
         {view === 'lobby' && (
           <div className="lobby-area">
             <div className="lobby-greeting">
-              <h2>Akwaaba, {username}!</h2>
+              <h2>
+                <span style={{ color: 'var(--gold)' }}>Akwaaba,</span>{' '}
+                {username}!
+              </h2>
               <p>Pick up where you left off or jump into a new conversation.</p>
             </div>
 
@@ -2970,7 +2977,7 @@ export default function App() {
     setShowAuth(null);
     const name = u.user_metadata?.username || u.email?.split('@')[0];
     setToast({
-      msg: `Akwaaba ${name}! Welcome to KasaPoint`,
+      msg: `Akwaaba ${name}! Welcome to KasaPoint! 🎉`,
       type: 'success',
     });
   }
@@ -3027,7 +3034,7 @@ export default function App() {
           <div className="kente" />
           <nav className="nav">
             <div className="nav-logo">
-              Kasa<span>Point</span>
+              Kasa<span>Point</span> &bull;
             </div>
             <div className="nav-actions">
               <button
