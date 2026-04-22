@@ -239,6 +239,25 @@ const sb = {
       },
     });
   },
+  async updateUsername(token, newUsername) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        data: {
+          username: newUsername,
+          full_name: newUsername,
+          display_name: newUsername,
+          username_changed: true,
+        },
+      }),
+    });
+    return r.json();
+  },
 };
 
 // ─── FALLBACK DATA ─────────────────────────────────────────────────────────────
@@ -438,11 +457,11 @@ const css = `
   .username-status.checking{color:var(--muted);letter-spacing:1px}
 
   /* ── APP LAYOUT ── */
-  .app-layout{display:flex;height:100vh;overflow:hidden;background:var(--bg)}
+  .app-layout{display:flex;height:100dvh;overflow:hidden;background:var(--bg)}
 
   /* ── SIDEBAR ── */
-  .sidebar{width:300px;flex-shrink:0;background:var(--sur);border-right:1px solid var(--bdr);display:flex;flex-direction:column;transition:transform .3s}
-  .sidebar-top{padding:0 20px;border-bottom:1px solid var(--bdr)}
+  .sidebar{width:300px;flex-shrink:0;background:var(--sur);border-right:1px solid var(--bdr);display:flex;flex-direction:column;transition:transform .3s;height:100dvh;overflow:hidden}
+  .sidebar-top{padding:0 20px;border-bottom:1px solid var(--bdr);flex-shrink:0}
   .sidebar-brand{display:flex;align-items:center;justify-content:space-between;height:58px}
   .sidebar-logo{font-family:'GFS Didot',serif;font-weight:900;font-size:1.1rem}.sidebar-logo span{color:var(--gold)}
   .profile-card{background:linear-gradient(135deg,#1A1A1A,#2D2A22);border-radius:16px;padding:16px;margin:0 0 14px;position:relative;overflow:hidden}
@@ -453,7 +472,7 @@ const css = `
   .online-pill::before{content:'';width:6px;height:6px;background:#4ade80;border-radius:50%}
 
   /* ── SIDEBAR TABS ── */
-  .sidebar-tabs{display:flex;padding:8px 10px 0;gap:4px;border-bottom:1px solid var(--bdr)}
+  .sidebar-tabs{display:flex;padding:8px 10px 0;gap:4px;border-bottom:1px solid var(--bdr);flex-shrink:0}
   .stab{flex:1;padding:8px 4px;border:none;background:transparent;cursor:pointer;font-family:'Outfit',sans-serif;font-size:.78rem;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:5px;margin-bottom:-1px}
   .stab.active{color:var(--gold-d);border-bottom-color:var(--gold)}
   .stab:hover:not(.active){color:var(--txt)}
@@ -482,12 +501,12 @@ const css = `
   .dm-empty .dm-empty-icon{font-size:2rem;margin-bottom:8px}
 
   /* ── SIDEBAR FOOTER ── */
-  .sidebar-footer{padding:12px 20px;border-top:1px solid var(--bdr)}
+  .sidebar-footer{padding:12px 20px;border-top:1px solid var(--bdr);flex-shrink:0}
   .signout-btn{width:100%;padding:9px;border-radius:10px;border:1.5px solid var(--bdr);background:transparent;color:var(--soft);font-family:'Outfit',sans-serif;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
   .signout-btn:hover{border-color:var(--red);color:var(--red);background:rgba(206,17,38,.04)}
 
   /* ── CHAT AREA ── */
-  .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden;height:100vh}
+  .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden;height:100dvh}
   .chat-header{flex-shrink:0;padding:12px 24px;border-bottom:1px solid var(--bdr);background:var(--sur);display:flex;align-items:center;gap:14px;box-shadow:0 1px 4px rgba(0,0,0,.04);z-index:10}
   .chat-room-icon{font-size:1.5rem}
   .chat-header-info{flex:1}
@@ -816,6 +835,19 @@ const css = `
   .dm-search-label{font-size:.72rem;color:var(--muted);padding:6px 14px 2px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
   .dm-search-new-badge{font-size:.65rem;background:var(--sur3);color:var(--soft);padding:2px 7px;border-radius:100px;margin-left:auto;flex-shrink:0}
 
+  /* ── USERNAME CHANGE ── */
+  .change-username-btn{margin-top:8px;padding:5px 12px;border-radius:100px;border:1px solid rgba(212,175,55,.5);background:rgba(212,175,55,.12);color:var(--gold-l);font-family:'Outfit',sans-serif;font-size:.7rem;font-weight:600;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:5px}
+  .change-username-btn:hover{background:rgba(212,175,55,.22);border-color:var(--gold)}
+  .change-username-btn:disabled{opacity:.45;cursor:not-allowed}
+  .username-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:600;padding:20px;animation:fadeIn .15s ease}
+  .username-modal{background:var(--sur);border-radius:20px;padding:28px 24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.2);animation:slideUp .25s ease;position:relative}
+  .username-modal h3{font-family:'GFS Didot',serif;font-size:1.1rem;font-weight:700;margin-bottom:4px}
+  .username-modal .um-sub{font-size:.8rem;color:var(--muted);margin-bottom:18px;line-height:1.5}
+  .um-warning{background:rgba(212,175,55,.1);border:1px solid rgba(212,175,55,.3);border-radius:10px;padding:10px 12px;font-size:.78rem;color:var(--gold-d);margin-bottom:16px;line-height:1.5}
+  .um-actions{display:flex;gap:8px;margin-top:18px}
+  .um-cancel{flex:1;padding:10px;border-radius:12px;border:1.5px solid var(--bdr);background:transparent;color:var(--soft);font-family:'Outfit',sans-serif;font-size:.875rem;cursor:pointer;transition:all .2s}.um-cancel:hover{border-color:var(--txt);color:var(--txt)}
+  .um-save{flex:1;padding:10px;border-radius:12px;background:var(--gold);color:#fff;border:none;font-family:'Outfit',sans-serif;font-size:.875rem;font-weight:600;cursor:pointer;transition:all .2s}.um-save:hover{background:var(--gold-d)}.um-save:disabled{opacity:.5;cursor:not-allowed}
+
   /* ── PROFILE POPUP ── */
   .profile-popup-overlay{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.3);backdrop-filter:blur(4px);animation:fadeIn .15s ease}
   .profile-popup{background:var(--sur);border-radius:20px;padding:28px 24px;width:100%;max-width:320px;box-shadow:0 16px 60px rgba(0,0,0,.18);animation:slideUp .2s ease;position:relative}
@@ -845,14 +877,19 @@ const css = `
   .hamburger span{display:block;width:22px;height:2px;background:var(--txt);border-radius:2px}
   .sidebar-overlay{display:none}
   @media(max-width:700px){
-    .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:200;transform:translateX(-100%)}
+    .app-layout{height:100dvh;overflow:hidden}
+    .sidebar{position:fixed;left:0;top:0;bottom:0;z-index:200;transform:translateX(-100%);height:100dvh}
     .sidebar.open{transform:translateX(0);box-shadow:4px 0 24px rgba(0,0,0,.15)}
     .hamburger{display:flex}
     .sidebar-overlay{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:199;opacity:0;pointer-events:none;transition:opacity .3s}
     .sidebar-overlay.visible{opacity:1;pointer-events:all}
-    .chat-header{padding:10px 14px}.chat-input-area{padding:10px 14px}
-    .messages-area{padding:12px 14px}.welcome-banner{margin:10px 14px 0}
-    .notif-banner{margin:10px 14px 0}
+    .chat-area{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+    .chat-header{flex-shrink:0;padding:10px 14px}
+    .messages-area{flex:1;min-height:0;overflow-y:auto;padding:12px 14px}
+    .chat-input-area{flex-shrink:0;padding:10px 14px}
+    .reply-bar{flex-shrink:0}
+    .welcome-banner{margin:10px 14px 0;flex-shrink:0}
+    .notif-banner{margin:10px 14px 0;flex-shrink:0}
     .cta-section{margin:0 12px 60px;padding:48px 24px}
   }
 
@@ -1316,6 +1353,126 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
   );
 }
 
+// ─── CHANGE USERNAME MODAL ─────────────────────────────────────────────────────
+function ChangeUsernameModal({ token, currentUsername, onSave, onClose }) {
+  const [newUsername, setNewUsername] = useState('');
+  const [status, setStatus] = useState(null); // null|'checking'|'available'|'taken'
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (newUsername.length < 3 || !/^[a-zA-Z0-9_]+$/.test(newUsername)) {
+      setStatus(null);
+      return;
+    }
+    setStatus('checking');
+    const t = setTimeout(async () => {
+      try {
+        const ok = await sb.usernameAvailable(newUsername.trim());
+        setStatus(ok ? 'available' : 'taken');
+      } catch {
+        setStatus(null);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [newUsername]);
+
+  async function handleSave() {
+    if (!newUsername.trim() || status !== 'available') return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await sb.updateUsername(token, newUsername.trim());
+      if (res?.user_metadata?.username || res?.id) {
+        onSave(newUsername.trim());
+      } else {
+        setError('Could not update username. Please try again.');
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div
+      className="username-modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="username-modal">
+        <button className="pp-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Change Username</h3>
+        <p className="um-sub">
+          Current: <strong>@{currentUsername}</strong>
+        </p>
+        <div className="um-warning">
+          ⚠ You can only change your username <strong>once</strong>. Choose
+          carefully!
+        </div>
+        <div className="form-group" style={{ position: 'relative' }}>
+          <label className="form-label">New Username</label>
+          <input
+            className="form-input"
+            type="text"
+            placeholder="e.g. kofi_mensah"
+            value={newUsername}
+            onChange={(e) =>
+              setNewUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))
+            }
+            maxLength={30}
+            style={{
+              paddingRight: 36,
+              borderColor:
+                status === 'taken'
+                  ? 'var(--red)'
+                  : status === 'available'
+                    ? 'var(--green)'
+                    : undefined,
+            }}
+            autoFocus
+          />
+          {status === 'checking' && (
+            <span className="username-status checking">...</span>
+          )}
+          {status === 'available' && (
+            <span className="username-status ok">✓</span>
+          )}
+          {status === 'taken' && (
+            <span className="username-status taken">✕</span>
+          )}
+        </div>
+        {status === 'taken' && (
+          <div
+            style={{
+              fontSize: '.75rem',
+              color: 'var(--red)',
+              marginTop: -8,
+              marginBottom: 8,
+            }}
+          >
+            Username already taken
+          </div>
+        )}
+        {error && <div className="form-error">⚠ {error}</div>}
+        <div className="um-actions">
+          <button className="um-cancel" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="um-save"
+            onClick={handleSave}
+            disabled={loading || status !== 'available'}
+          >
+            {loading ? 'Saving...' : 'Save Username'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CHAT SCREEN ───────────────────────────────────────────────────────────────
 function ChatScreen({ user, token, onLogout }) {
   const [rooms, setRooms] = useState([]);
@@ -1341,6 +1498,17 @@ function ChatScreen({ user, token, onLogout }) {
   const [dmSearch, setDmSearch] = useState('');
   const [dmSearchResults, setDmSearchResults] = useState([]); // [{id, username}]
   const [dmSearchLoading, setDmSearchLoading] = useState(false);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [displayUsername, setDisplayUsername] = useState(
+    user?.user_metadata?.username ||
+      user?.user_metadata?.full_name ||
+      user?.email?.split('@')[0] ||
+      'User',
+  );
+
+  const username = displayUsername;
+  // Track if user already changed username (stored in user metadata flag)
+  const hasChangedUsername = !!user?.user_metadata?.username_changed;
   const bottomRef = useRef(null);
   const messagesAreaRef = useRef(null);
   const roomPollRef = useRef(null);
@@ -1350,11 +1518,6 @@ function ChatScreen({ user, token, onLogout }) {
   const notifPermission =
     typeof Notification !== 'undefined' ? Notification.permission : 'denied';
 
-  const username =
-    user?.user_metadata?.username ||
-    user?.user_metadata?.full_name ||
-    user?.email?.split('@')[0] ||
-    'User';
   const joinedDate = user?.created_at ? formatDate(user.created_at) : null;
 
   function showBrowserNotif(title, body) {
@@ -1688,6 +1851,32 @@ function ChatScreen({ user, token, onLogout }) {
         />
       )}
 
+      {showUsernameModal && (
+        <ChangeUsernameModal
+          token={token}
+          currentUsername={username}
+          onSave={(newName) => {
+            setDisplayUsername(newName);
+            setShowUsernameModal(false);
+            // Persist flag to localStorage so we know they've changed it
+            const stored =
+              localStorage.getItem('gchat_user') ||
+              sessionStorage.getItem('gchat_user');
+            if (stored) {
+              try {
+                const u = JSON.parse(stored);
+                if (!u.user_metadata) u.user_metadata = {};
+                u.user_metadata.username = newName;
+                u.user_metadata.username_changed = true;
+                localStorage.setItem('gchat_user', JSON.stringify(u));
+                sessionStorage.setItem('gchat_user', JSON.stringify(u));
+              } catch {}
+            }
+          }}
+          onClose={() => setShowUsernameModal(false)}
+        />
+      )}
+
       {/* ── SIDEBAR ── */}
       <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="kente" />
@@ -1722,6 +1911,18 @@ function ChatScreen({ user, token, onLogout }) {
               <div className="profile-joined">Joined {joinedDate}</div>
             )}
             <div className="online-pill">Online</div>
+            <button
+              className="change-username-btn"
+              onClick={() => setShowUsernameModal(true)}
+              disabled={hasChangedUsername}
+              title={
+                hasChangedUsername
+                  ? 'Username can only be changed once'
+                  : 'Change your username'
+              }
+            >
+              ✏ {hasChangedUsername ? 'Username locked' : 'Change username'}
+            </button>
           </div>
         </div>
 
