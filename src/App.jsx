@@ -239,6 +239,18 @@ const sb = {
       },
     });
   },
+  async changePassword(token, newPassword) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ password: newPassword }),
+    });
+    return r.json();
+  },
   async updateUsername(token, newUsername) {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       method: 'PUT',
@@ -665,6 +677,8 @@ const css = `
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  overflow: hidden;
 }
 
 .lobby-dm-card {
@@ -679,6 +693,9 @@ const css = `
   align-items: center;
   gap: 10px;
   position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .lobby-dm-card:hover {
@@ -689,6 +706,7 @@ const css = `
 .lobby-dm-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .lobby-dm-name {
@@ -702,6 +720,7 @@ const css = `
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .lobby-dm-time {
@@ -1473,8 +1492,140 @@ function ChangeUsernameModal({ token, currentUsername, onSave, onClose }) {
   );
 }
 
+// ─── CHANGE PASSWORD MODAL ────────────────────────────────────────────────────
+function ChangePasswordModal({ token, onClose, onToast }) {
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const strength = pwStrength(newPw);
+  const strengthColors = ['#bbb', '#CE1126', '#f59e0b', '#D4AF37', '#006B3F'];
+  const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+
+  async function handleSave() {
+    if (!newPw || newPw !== confirmPw) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (newPw.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await sb.changePassword(token, newPw);
+      if (res?.id || res?.email) {
+        onToast({ msg: '🔒 Password updated successfully!', type: 'success' });
+        onClose();
+      } else {
+        setError(
+          res?.msg || res?.message || 'Could not update password. Try again.',
+        );
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div
+      className="username-modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="username-modal">
+        <button className="pp-close" onClick={onClose}>
+          ✕
+        </button>
+        <h3>Change Password</h3>
+        <p className="um-sub">Choose a strong new password for your account.</p>
+        <div className="form-group">
+          <label className="form-label">New Password</label>
+          <div className="pw-wrap">
+            <input
+              className="form-input"
+              type={showPw ? 'text' : 'password'}
+              placeholder="••••••••"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              style={{ paddingRight: 52 }}
+              autoFocus
+              autoComplete="new-password"
+            />
+            <button
+              className="pw-toggle"
+              type="button"
+              onClick={() => setShowPw((v) => !v)}
+            >
+              {showPw ? '🙈' : '👁'}
+            </button>
+          </div>
+          {newPw.length > 0 && (
+            <>
+              <div className="pw-bar">
+                <div
+                  className="pw-bar-fill"
+                  style={{
+                    width: `${strength * 25}%`,
+                    background: strengthColors[strength],
+                  }}
+                />
+              </div>
+              <div
+                className="pw-hint"
+                style={{ color: strengthColors[strength] }}
+              >
+                {strengthLabels[strength]}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Confirm New Password</label>
+          <div className="pw-wrap">
+            <input
+              className="form-input"
+              type={showPw ? 'text' : 'password'}
+              placeholder="••••••••"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              style={{
+                paddingRight: 52,
+                borderColor:
+                  confirmPw && confirmPw !== newPw
+                    ? 'var(--red)'
+                    : confirmPw && confirmPw === newPw
+                      ? 'var(--green)'
+                      : undefined,
+              }}
+              autoComplete="new-password"
+            />
+          </div>
+        </div>
+        {error && <div className="form-error">⚠ {error}</div>}
+        <div className="um-actions">
+          <button className="um-cancel" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="um-save"
+            onClick={handleSave}
+            disabled={loading || !newPw || newPw !== confirmPw}
+          >
+            {loading ? 'Saving...' : 'Update Password'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CHAT SCREEN ───────────────────────────────────────────────────────────────
-function ChatScreen({ user, token, onLogout }) {
+function ChatScreen({ user, token, onLogout, onToast }) {
   const [rooms, setRooms] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -1499,12 +1650,22 @@ function ChatScreen({ user, token, onLogout }) {
   const [dmSearchResults, setDmSearchResults] = useState([]); // [{id, username}]
   const [dmSearchLoading, setDmSearchLoading] = useState(false);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [displayUsername, setDisplayUsername] = useState(
     user?.user_metadata?.username ||
       user?.user_metadata?.full_name ||
       user?.email?.split('@')[0] ||
       'User',
   );
+  // roomLastSeen: roomId -> ISO timestamp of last message seen, persisted in localStorage
+  const [roomLastSeen, setRoomLastSeen] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('kp_room_last_seen') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const roomLastSeenRef = useRef(roomLastSeen);
 
   const username = displayUsername;
   // Track if user already changed username (stored in user metadata flag)
@@ -1515,6 +1676,7 @@ function ChatScreen({ user, token, onLogout }) {
   const dmPollRef = useRef(null);
   const knownDmIds = useRef(new Set());
   const userScrolledUp = useRef(false);
+  const firstUnreadRef = useRef(null);
   const notifPermission =
     typeof Notification !== 'undefined' ? Notification.permission : 'denied';
 
@@ -1562,9 +1724,7 @@ function ChatScreen({ user, token, onLogout }) {
     if (!activeRoom || view !== 'room') return;
     clearInterval(roomPollRef.current);
     userScrolledUp.current = false;
-    // Immediately scroll to bottom on room change
-    if (messagesAreaRef.current)
-      messagesAreaRef.current.scrollTop = messagesAreaRef.current.scrollHeight;
+    firstUnreadRef.current = null;
     async function fetch() {
       try {
         const data = await sb.getMessages(token, activeRoom.id);
@@ -1598,6 +1758,11 @@ function ChatScreen({ user, token, onLogout }) {
           if (!knownDmIds.current.has(m.id)) {
             knownDmIds.current.add(m.id);
             showBrowserNotif(`New message from ${m.from_username}`, m.content);
+            // In-app toast for private messages
+            onToast({
+              msg: `💬 New message from ${m.from_username}`,
+              type: '',
+            });
           }
         });
         // Initialize known IDs on first load
@@ -1610,6 +1775,50 @@ function ChatScreen({ user, token, onLogout }) {
     dmPollRef.current = setInterval(fetchDMs, 4000);
     return () => clearInterval(dmPollRef.current);
   }, [token, user.id]);
+
+  // 5-minute unread reminder toast
+  useEffect(() => {
+    const t = setInterval(
+      () => {
+        setTotalUnread((current) => {
+          if (current > 0) {
+            onToast({ msg: `🔔 Unread messages (${current})`, type: '' });
+          }
+          return current;
+        });
+      },
+      5 * 60 * 1000,
+    );
+    return () => clearInterval(t);
+  }, []);
+
+  // Background room badge polling (only when on lobby, every 60 seconds)
+  useEffect(() => {
+    if (view !== 'lobby' || rooms.length === 0) return;
+    async function checkRoomUnread() {
+      const newUnread = {};
+      for (const room of rooms) {
+        try {
+          const msgs = await sb.getMessages(token, room.id);
+          if (Array.isArray(msgs) && msgs.length > 0) {
+            const lastSeen = roomLastSeenRef.current[room.id];
+            if (lastSeen) {
+              newUnread[room.id] = msgs.filter(
+                (m) => new Date(m.created_at) > new Date(lastSeen),
+              ).length;
+            } else {
+              // Never visited — show a subtle indicator if there are messages
+              newUnread[room.id] = 0;
+            }
+          }
+        } catch {}
+      }
+      setRoomUnread(newUnread);
+    }
+    checkRoomUnread();
+    const t = setInterval(checkRoomUnread, 60000);
+    return () => clearInterval(t);
+  }, [view, rooms, token]);
 
   // Poll active DM thread
   useEffect(() => {
@@ -1630,14 +1839,34 @@ function ChatScreen({ user, token, onLogout }) {
   }, [activeDm, view, token, user.id]);
 
   // Smart auto-scroll: only scroll to bottom if user is already near bottom
+  // Smart auto-scroll: scroll to first unread on initial room load, else bottom
   useEffect(() => {
     const el = messagesAreaRef.current;
     if (!el) return;
     if (!userScrolledUp.current) {
-      // Use scrollTop directly instead of scrollIntoView to avoid fighting user scroll
-      el.scrollTop = el.scrollHeight;
+      // If we have a first-unread marker visible, scroll to it on initial load
+      if (firstUnreadRef.current && view === 'room') {
+        firstUnreadRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
     }
   }, [messages, dmMessages]);
+
+  // When viewing a room and messages load, update lastSeen and clear unread badge
+  useEffect(() => {
+    if (view === 'room' && activeRoom && messages.length > 0 && !loadingMsgs) {
+      const latest = messages[messages.length - 1].created_at;
+      const updated = { ...roomLastSeenRef.current, [activeRoom.id]: latest };
+      roomLastSeenRef.current = updated;
+      setRoomLastSeen(updated);
+      localStorage.setItem('kp_room_last_seen', JSON.stringify(updated));
+      setRoomUnread((prev) => ({ ...prev, [activeRoom.id]: 0 }));
+    }
+  }, [messages, view, activeRoom, loadingMsgs]);
 
   async function sendMessage() {
     const content = input.trim();
@@ -1877,6 +2106,14 @@ function ChatScreen({ user, token, onLogout }) {
         />
       )}
 
+      {showPasswordModal && (
+        <ChangePasswordModal
+          token={token}
+          onClose={() => setShowPasswordModal(false)}
+          onToast={onToast}
+        />
+      )}
+
       {/* ── SIDEBAR ── */}
       <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="kente" />
@@ -1922,6 +2159,14 @@ function ChatScreen({ user, token, onLogout }) {
               }
             >
               ✏ {hasChangedUsername ? 'Username locked' : 'Change username'}
+            </button>
+            <button
+              className="change-username-btn"
+              style={{ marginLeft: 4 }}
+              onClick={() => setShowPasswordModal(true)}
+              title="Change your password"
+            >
+              🔒 Change password
             </button>
           </div>
         </div>
@@ -1969,6 +2214,14 @@ function ChatScreen({ user, token, onLogout }) {
                   <span className="room-item-name">
                     {r.name.slice(r.name.indexOf(' ') + 1)}
                   </span>
+                  {roomUnread[r.id] > 0 && (
+                    <span
+                      className="unread-badge"
+                      style={{ marginLeft: 'auto' }}
+                    >
+                      {roomUnread[r.id] > 99 ? '99+' : roomUnread[r.id]}
+                    </span>
+                  )}
                 </button>
               ))
             )}
@@ -2249,6 +2502,11 @@ function ChatScreen({ user, token, onLogout }) {
                     {r.description && (
                       <div className="lobby-room-desc">{r.description}</div>
                     )}
+                    {roomUnread[r.id] > 0 && (
+                      <span className="lobby-badge">
+                        {roomUnread[r.id] > 99 ? '99+' : roomUnread[r.id]}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -2342,185 +2600,223 @@ function ChatScreen({ user, token, onLogout }) {
                   </div>
                 </div>
               ) : (
-                grouped.map((group, gi) => {
-                  const isOwn = group.sender === username;
-                  return (
-                    <div key={gi} className="msg-group">
-                      {!isOwn && (
-                        <div className="msg-sender-row">
+                (() => {
+                  const lastSeen = roomLastSeen[activeRoom?.id];
+                  let unreadDividerShown = false;
+                  return grouped.map((group, gi) => {
+                    const isOwn = group.sender === username;
+                    // Check if this group contains the first unread message
+                    const isFirstUnreadGroup =
+                      !unreadDividerShown &&
+                      lastSeen &&
+                      group.messages[0] &&
+                      new Date(group.messages[0].created_at) >
+                        new Date(lastSeen);
+                    if (isFirstUnreadGroup) unreadDividerShown = true;
+                    return (
+                      <div key={gi}>
+                        {isFirstUnreadGroup && (
                           <div
-                            className="msg-avatar msg-avatar-clickable"
-                            style={{ background: avatarColor(group.sender) }}
-                            onClick={() =>
-                              setProfilePopup({
-                                username: group.sender,
-                                userId: group.userId,
-                              })
-                            }
+                            ref={firstUnreadRef}
+                            className="msg-date-divider"
+                            style={{ color: 'var(--red)', fontWeight: 700 }}
                           >
-                            {getInitials(group.sender)}
+                            ── Unread Messages ──
                           </div>
-                          <span
-                            className="msg-sender-name"
-                            onClick={() =>
-                              setProfilePopup({
-                                username: group.sender,
-                                userId: group.userId,
-                              })
-                            }
-                          >
-                            {group.sender}
-                          </span>
-                          <span className="msg-sender-time">
-                            {timeAgo(group.messages[0].created_at)}
-                          </span>
-                        </div>
-                      )}
-                      {group.messages.map((msg, mi) => (
-                        <div
-                          key={msg.id || mi}
-                          className={`msg-row-wrap ${isOwn ? 'own' : ''}`}
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: isOwn ? 'flex-end' : 'flex-start',
-                            marginLeft: isOwn ? 0 : 36,
-                            marginRight: isOwn ? 4 : 0,
-                            position: 'relative',
-                          }}
-                        >
-                          {msg.reply_to_id && (
-                            <div
-                              className="reply-preview"
-                              style={{
-                                alignSelf: isOwn ? 'flex-end' : 'flex-start',
-                              }}
-                            >
-                              <div className="reply-author">
-                                ↩ {msg.reply_to_username}
+                        )}
+                        <div className="msg-group">
+                          {!isOwn && (
+                            <div className="msg-sender-row">
+                              <div
+                                className="msg-avatar msg-avatar-clickable"
+                                style={{
+                                  background: avatarColor(group.sender),
+                                }}
+                                onClick={() =>
+                                  setProfilePopup({
+                                    username: group.sender,
+                                    userId: group.userId,
+                                  })
+                                }
+                              >
+                                {getInitials(group.sender)}
                               </div>
-                              <div className="reply-text">
-                                {msg.reply_to_content}
-                              </div>
+                              <span
+                                className="msg-sender-name"
+                                onClick={() =>
+                                  setProfilePopup({
+                                    username: group.sender,
+                                    userId: group.userId,
+                                  })
+                                }
+                              >
+                                {group.sender}
+                              </span>
+                              <span className="msg-sender-time">
+                                {timeAgo(group.messages[0].created_at)}
+                              </span>
                             </div>
                           )}
-                          {editingMsg?.id === msg.id ? (
+                          {group.messages.map((msg, mi) => (
                             <div
-                              className="msg-edit-wrap"
-                              style={{
-                                alignSelf: isOwn ? 'flex-end' : 'flex-start',
-                              }}
-                            >
-                              <textarea
-                                className="msg-edit-input"
-                                value={editInput}
-                                onChange={(e) => setEditInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleEditMsg(msg.id, 'room');
-                                  }
-                                  if (e.key === 'Escape') setEditingMsg(null);
-                                }}
-                                autoFocus
-                                rows={2}
-                              />
-                              <div className="msg-edit-actions">
-                                <button
-                                  className="msg-edit-cancel"
-                                  onClick={() => setEditingMsg(null)}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  className="msg-edit-save"
-                                  onClick={() => handleEditMsg(msg.id, 'room')}
-                                >
-                                  Save
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div
+                              key={msg.id || mi}
+                              className={`msg-row-wrap ${isOwn ? 'own' : ''}`}
                               style={{
                                 display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                flexDirection: isOwn ? 'row-reverse' : 'row',
-                                maxWidth: '100%',
+                                flexDirection: 'column',
+                                alignItems: isOwn ? 'flex-end' : 'flex-start',
+                                marginLeft: isOwn ? 0 : 36,
+                                marginRight: isOwn ? 4 : 0,
+                                position: 'relative',
                               }}
                             >
-                              <div
-                                className={`msg-bubble ${isOwn ? 'own' : ''}`}
-                              >
-                                {msg.content}
-                                {msg.edited_at && (
-                                  <span className="msg-edited-tag">
-                                    · edited
-                                  </span>
-                                )}
-                              </div>
-                              <div className="msg-actions">
-                                <button
-                                  className="msg-reply-btn"
-                                  title="Reply"
-                                  onClick={() =>
-                                    setReplyTo({
-                                      id: msg.id,
-                                      username: msg.username || group.sender,
-                                      content: msg.content,
-                                    })
-                                  }
+                              {msg.reply_to_id && (
+                                <div
+                                  className="reply-preview"
+                                  style={{
+                                    alignSelf: isOwn
+                                      ? 'flex-end'
+                                      : 'flex-start',
+                                  }}
                                 >
-                                  <svg viewBox="0 0 24 24">
-                                    <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
-                                  </svg>
-                                </button>
-                                {isOwn && (
-                                  <>
+                                  <div className="reply-author">
+                                    ↩ {msg.reply_to_username}
+                                  </div>
+                                  <div className="reply-text">
+                                    {msg.reply_to_content}
+                                  </div>
+                                </div>
+                              )}
+                              {editingMsg?.id === msg.id ? (
+                                <div
+                                  className="msg-edit-wrap"
+                                  style={{
+                                    alignSelf: isOwn
+                                      ? 'flex-end'
+                                      : 'flex-start',
+                                  }}
+                                >
+                                  <textarea
+                                    className="msg-edit-input"
+                                    value={editInput}
+                                    onChange={(e) =>
+                                      setEditInput(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleEditMsg(msg.id, 'room');
+                                      }
+                                      if (e.key === 'Escape')
+                                        setEditingMsg(null);
+                                    }}
+                                    autoFocus
+                                    rows={2}
+                                  />
+                                  <div className="msg-edit-actions">
                                     <button
-                                      className="msg-act-btn"
-                                      title="Edit"
-                                      onClick={() => startEdit(msg, 'room')}
+                                      className="msg-edit-cancel"
+                                      onClick={() => setEditingMsg(null)}
                                     >
-                                      <svg viewBox="0 0 24 24">
-                                        <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                                      </svg>
+                                      Cancel
                                     </button>
                                     <button
-                                      className="msg-act-btn del"
-                                      title="Delete"
+                                      className="msg-edit-save"
                                       onClick={() =>
-                                        handleDeleteMsg(msg.id, 'room')
+                                        handleEditMsg(msg.id, 'room')
+                                      }
+                                    >
+                                      Save
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    flexDirection: isOwn
+                                      ? 'row-reverse'
+                                      : 'row',
+                                    maxWidth: '100%',
+                                  }}
+                                >
+                                  <div
+                                    className={`msg-bubble ${isOwn ? 'own' : ''}`}
+                                  >
+                                    {msg.content}
+                                    {msg.edited_at && (
+                                      <span className="msg-edited-tag">
+                                        · edited
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="msg-actions">
+                                    <button
+                                      className="msg-reply-btn"
+                                      title="Reply"
+                                      onClick={() =>
+                                        setReplyTo({
+                                          id: msg.id,
+                                          username:
+                                            msg.username || group.sender,
+                                          content: msg.content,
+                                        })
                                       }
                                     >
                                       <svg viewBox="0 0 24 24">
-                                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                                        <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
                                       </svg>
                                     </button>
-                                  </>
-                                )}
-                              </div>
+                                    {isOwn && (
+                                      <>
+                                        <button
+                                          className="msg-act-btn"
+                                          title="Edit"
+                                          onClick={() => startEdit(msg, 'room')}
+                                        >
+                                          <svg viewBox="0 0 24 24">
+                                            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                          </svg>
+                                        </button>
+                                        <button
+                                          className="msg-act-btn del"
+                                          title="Delete"
+                                          onClick={() =>
+                                            handleDeleteMsg(msg.id, 'room')
+                                          }
+                                        >
+                                          <svg viewBox="0 0 24 24">
+                                            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                                          </svg>
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          )}
+                          ))}
+                          <div
+                            className="msg-time-small"
+                            style={
+                              isOwn
+                                ? { textAlign: 'right', marginRight: 4 }
+                                : { marginLeft: 36 }
+                            }
+                          >
+                            {timeAgo(
+                              group.messages[group.messages.length - 1]
+                                .created_at,
+                            )}
+                            {isOwn && ' · You'}
+                          </div>
                         </div>
-                      ))}
-                      <div
-                        className="msg-time-small"
-                        style={
-                          isOwn
-                            ? { textAlign: 'right', marginRight: 4 }
-                            : { marginLeft: 36 }
-                        }
-                      >
-                        {timeAgo(
-                          group.messages[group.messages.length - 1].created_at,
-                        )}
-                        {isOwn && ' · You'}
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  });
+                })()
               )}
               <div ref={bottomRef} />
             </div>
@@ -3028,7 +3324,12 @@ export default function App() {
         />
       )}
       {user && token ? (
-        <ChatScreen user={user} token={token} onLogout={handleLogout} />
+        <ChatScreen
+          user={user}
+          token={token}
+          onLogout={handleLogout}
+          onToast={setToast}
+        />
       ) : (
         <div style={{ minHeight: '100vh' }}>
           <div className="kente" />
