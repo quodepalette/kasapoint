@@ -1357,6 +1357,40 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
               user.user_metadata.name ||
               loginEmail.split('@')[0];
       }
+
+      // Block login for deleted accounts — check the profiles table
+      if (tab === 'login') {
+        try {
+          const profileRes = await fetch(
+            `${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=deleted&limit=1`,
+            {
+              headers: {
+                Authorization: `Bearer ${data.access_token}`,
+                apikey: SUPABASE_ANON_KEY,
+              },
+            },
+          );
+          if (profileRes.ok) {
+            const profiles = await profileRes.json();
+            if (
+              Array.isArray(profiles) &&
+              profiles.length > 0 &&
+              profiles[0].deleted === true
+            ) {
+              setError('This account has been deleted and cannot be accessed.');
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {}
+        // Also check user_metadata fallback (set during deleteAccount)
+        if (user.user_metadata?.account_deleted === true) {
+          setError('This account has been deleted and cannot be accessed.');
+          setLoading(false);
+          return;
+        }
+      }
+
       const store = stayIn ? localStorage : sessionStorage;
       store.setItem('gchat_token', data.access_token);
       store.setItem('gchat_user', JSON.stringify(user));
@@ -2492,14 +2526,30 @@ function ChatScreen({ user, token, onLogout, onToast }) {
 
   async function handleDeleteMsg(id, type) {
     if (type === 'room') {
+      // Optimistic remove
       setMessages((p) => p.filter((m) => m.id !== id));
       try {
         await sb.deleteMessage(token, id);
       } catch {}
+      // Re-fetch immediately so the polling interval doesn't restore the deleted message
+      try {
+        if (activeRoom) {
+          const fresh = await sb.getMessages(token, activeRoom.id);
+          if (Array.isArray(fresh)) setMessages(fresh);
+        }
+      } catch {}
     } else {
+      // Optimistic remove
       setDmMessages((p) => p.filter((m) => m.id !== id));
       try {
         await sb.deleteDM(token, id);
+      } catch {}
+      // Re-fetch immediately so the polling interval doesn't restore the deleted message
+      try {
+        if (activeDm) {
+          const fresh = await sb.getDMThread(token, user.id, activeDm.userId);
+          if (Array.isArray(fresh)) setDmMessages(fresh);
+        }
       } catch {}
     }
   }
