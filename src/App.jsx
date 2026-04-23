@@ -43,33 +43,54 @@ const sb = {
     });
     return r.json();
   },
-  async getEmailByUsername(username) {
-    // Look up the email address associated with a username from the profiles table
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(username.trim())}&select=email&limit=1`,
-      {
-        headers: { apikey: SUPABASE_ANON_KEY },
-      },
-    );
-    if (r.ok) {
-      const data = await r.json();
-      if (Array.isArray(data) && data.length > 0 && data[0].email) {
-        return data[0].email;
-      }
-    }
-    return null;
-  },
   async getUser(token) {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
     });
     return r.json();
   },
-  signInWithGoogle() {
-    const redirect = encodeURIComponent(
-      window.location.origin + window.location.pathname,
-    );
-    window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${redirect}`;
+  // Resolve a username to its email so sign-in-by-username works
+  async getEmailByUsername(username) {
+    const trimmed = username.trim();
+    // Try exact case-insensitive match first
+    const attempts = [
+      `${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(trimmed)}&select=id,email&limit=1`,
+      `${SUPABASE_URL}/rest/v1/profiles?username=eq.${encodeURIComponent(trimmed)}&select=id,email&limit=1`,
+    ];
+    for (const url of attempts) {
+      try {
+        const r = await fetch(url, {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (r.ok) {
+          const data = await r.json();
+          if (Array.isArray(data) && data.length > 0 && data[0].email)
+            return data[0].email;
+        }
+      } catch {}
+    }
+    // Last resort: try RPC lookup
+    try {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_email_by_username`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ uname: trimmed.toLowerCase() }),
+        },
+      );
+      if (r.ok) {
+        const email = await r.json();
+        if (typeof email === 'string' && email.includes('@')) return email;
+      }
+    } catch {}
+    return null;
   },
   async getRooms(token) {
     const r = await fetch(
@@ -235,25 +256,7 @@ const sb = {
       body: JSON.stringify({ content, edited_at: new Date().toISOString() }),
     });
   },
-  async deleteMessage(token, id, isAdminDelete = false) {
-    if (isAdminDelete) {
-      // Try admin RPC first (requires a Supabase function with SECURITY DEFINER)
-      try {
-        const rpc = await fetch(
-          `${SUPABASE_URL}/rest/v1/rpc/admin_delete_message`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-              apikey: SUPABASE_ANON_KEY,
-            },
-            body: JSON.stringify({ message_id: id }),
-          },
-        );
-        if (rpc.ok) return;
-      } catch {}
-    }
+  async deleteMessage(token, id) {
     await fetch(`${SUPABASE_URL}/rest/v1/messages?id=eq.${id}`, {
       method: 'DELETE',
       headers: {
@@ -341,7 +344,7 @@ const sb = {
     return r.json();
   },
   async updateUsername(token, newUsername) {
-    // Update auth metadata
+    // 1. Update Supabase Auth user_metadata (display_name in the Auth dashboard)
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       method: 'PUT',
       headers: {
@@ -359,7 +362,8 @@ const sb = {
       }),
     });
     const result = await r.json();
-    // Also update the profiles table so sign-in-by-username and DM search work
+    // 2. Mirror the change into public.profiles so sign-in-by-username,
+    //    DM search, and message display all stay in sync.
     if (result?.id) {
       try {
         await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${result.id}`, {
@@ -376,19 +380,36 @@ const sb = {
     return result;
   },
   async deleteAccount(token) {
-    // Mark user as deleted in metadata first so messages show "Deleted account"
-    await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        apikey: SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ data: { account_deleted: true } }),
-    });
-    // Delete the account via admin RPC (best-effort)
+    // Step 1: Get user info first
+    let userId = null;
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/rpc/delete_own_account`, {
+      const u = await this.getUser(token);
+      userId = u?.id;
+    } catch {}
+
+    // Step 2: Mark messages as from deleted user in profiles
+    if (userId) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            username: '[deleted]',
+            email: null,
+            deleted: true,
+          }),
+        });
+      } catch {}
+    }
+
+    // Step 3: Call the RPC to delete the auth user
+    const rpcRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/delete_own_account`,
+      {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -396,8 +417,27 @@ const sb = {
           apikey: SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({}),
+      },
+    );
+
+    // If RPC succeeded or returned a known ok status, we're good
+    if (rpcRes.ok || rpcRes.status === 204) return true;
+
+    // Step 4: Fallback — mark metadata as deleted so UI reflects it
+    try {
+      await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          data: { account_deleted: true, username: '[deleted]' },
+        }),
       });
     } catch {}
+
     return true;
   },
 };
@@ -447,25 +487,58 @@ function avatarColor(name) {
     'linear-gradient(135deg,#D4AF37,#CE1126)',
     'linear-gradient(135deg,#006B3F,#D4AF37)',
     'linear-gradient(135deg,#CE1126,#006B3F)',
-    'linear-gradient(135deg,#B8941F,#2D6A4F)',
-    'linear-gradient(135deg,#2D2A22,#D4AF37)',
+    'linear-gradient(135deg,#1a1aff,#D4AF37)',
+    'linear-gradient(135deg,#9b59b6,#D4AF37)',
+    'linear-gradient(135deg,#e67e22,#CE1126)',
+    'linear-gradient(135deg,#16a085,#D4AF37)',
+    'linear-gradient(135deg,#2980b9,#006B3F)',
+    'linear-gradient(135deg,#8e44ad,#CE1126)',
+    'linear-gradient(135deg,#27ae60,#1a1aff)',
+    'linear-gradient(135deg,#d35400,#9b59b6)',
+    'linear-gradient(135deg,#c0392b,#2980b9)',
+    'linear-gradient(135deg,#f39c12,#006B3F)',
+    'linear-gradient(135deg,#1abc9c,#CE1126)',
+    'linear-gradient(135deg,#2c3e50,#D4AF37)',
+    'linear-gradient(135deg,#6c3483,#27ae60)',
+    'linear-gradient(135deg,#117a65,#f39c12)',
+    'linear-gradient(135deg,#b7950b,#2980b9)',
+    'linear-gradient(135deg,#922b21,#1abc9c)',
+    'linear-gradient(135deg,#1f618d,#e67e22)',
+    'linear-gradient(135deg,#6e2f1a,#D4AF37)',
+    'linear-gradient(135deg,#0b5345,#d35400)',
+    'linear-gradient(135deg,#4a235a,#27ae60)',
+    'linear-gradient(135deg,#154360,#D4AF37)',
+    'linear-gradient(135deg,#784212,#16a085)',
+    'linear-gradient(135deg,#1b2631,#f39c12)',
+    'linear-gradient(135deg,#2e4053,#CE1126)',
+    'linear-gradient(135deg,#4d5656,#D4AF37)',
+    'linear-gradient(135deg,#7d6608,#2980b9)',
+    'linear-gradient(135deg,#512e5f,#e67e22)',
   ];
-  let h = 0;
-  for (let i = 0; i < (name || '').length; i++)
-    h = (h * 31 + name.charCodeAt(i)) % c.length;
-  return c[h];
+  // FNV-1a-inspired hash for better distribution
+  let h = 2166136261;
+  const n = name || '?';
+  for (let i = 0; i < n.length; i++) {
+    h ^= n.charCodeAt(i);
+    h = (h * 16777619) >>> 0;
+  }
+  return c[h % c.length];
 }
 function isAdmin(user) {
   if (!user) return false;
-  const email = user.email?.toLowerCase();
+  const email = (user.email || '').toLowerCase();
   const uname = (
     user.user_metadata?.username ||
     user.user_metadata?.full_name ||
+    user.user_metadata?.display_name ||
     ''
   ).toLowerCase();
+  // Check by email, username, or explicit is_admin flag
   return (
     email === ADMIN_EMAIL.toLowerCase() ||
-    uname === ADMIN_USERNAME.toLowerCase()
+    uname === ADMIN_USERNAME.toLowerCase() ||
+    user.user_metadata?.is_admin === true ||
+    user.app_metadata?.is_admin === true
   );
 }
 
@@ -523,15 +596,6 @@ const css = `
   .btn-ghost{background:transparent;color:var(--soft)}.btn-ghost:hover{background:var(--sur2);color:var(--txt)}
   .btn-gold{background:var(--gold);color:#fff;box-shadow:0 2px 8px rgba(212,175,55,.35)}.btn-gold:hover{background:var(--gold-d);transform:translateY(-1px)}.btn-gold:disabled{opacity:.6;cursor:not-allowed;transform:none}
   .btn-outline{background:transparent;color:var(--txt);border:1.5px solid var(--bdr)}.btn-outline:hover{border-color:var(--gold);color:var(--gold)}
-  .btn-google{
-    width:100%;padding:11px 16px;border-radius:12px;border:1.5px solid #dadce0;
-    background:#fff;color:#3c4043;font-family:'Outfit',sans-serif;font-size:.875rem;font-weight:500;
-    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;
-    transition:all .2s;margin-bottom:14px;
-  }
-  .btn-google:hover{background:#f8f9fa;border-color:#c6c6c6;box-shadow:0 1px 6px rgba(0,0,0,.1)}
-  .divider{display:flex;align-items:center;gap:12px;margin-bottom:16px;color:var(--muted);font-size:.75rem}
-  .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--bdr)}
 
   /* ── NAV ── */
   .nav{position:sticky;top:0;z-index:100;background:rgba(250,250,247,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--bdr);padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between}
@@ -1181,6 +1245,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
     setError('');
     setSuccess('');
 
+    // ── Sign-up validation ──────────────────────────────────────────────────
     if (tab === 'signup') {
       if (!username.trim()) {
         setError('Please choose a username');
@@ -1202,43 +1267,47 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         setError('Passwords do not match');
         return;
       }
-      if (strength < 2) {
-        setError('Please choose a stronger password');
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters');
         return;
       }
     }
-    // Replace your current regex with this stricter one
-    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
-    // Allow plain usernames on the login tab (resolved to email later)
-    const isUsernameLogin =
-      tab === 'login' && email.trim() && !email.includes('@');
-    if (!isUsernameLogin && !emailRegex.test(email)) {
-      setError('Please enter a valid email address or username');
-      return;
+
+    // ── Login: allow email OR username ──────────────────────────────────────
+    let loginEmail = email.trim();
+    if (tab === 'login') {
+      if (!loginEmail) {
+        setError('Please enter your email or username');
+        return;
+      }
+      if (!loginEmail.includes('@')) {
+        // Treat as username — resolve to email via profiles table
+        const resolved = await sb.getEmailByUsername(loginEmail);
+        if (!resolved) {
+          setError('No account found with that username');
+          return;
+        }
+        loginEmail = resolved;
+      }
     }
-    // Block obvious disposable domains (skip if signing in with username)
-    const disposable = [
-      'mailinator.com',
-      'guerrillamail.com',
-      'tempmail.com',
-      'throwaway.email',
-      'yopmail.com',
-    ];
-    const domain = email.split('@')[1]?.toLowerCase();
-    if (!isUsernameLogin && disposable.includes(domain)) {
-      setError(
-        'Please use a real email address - disposable emails are not allowed',
-      );
-      return;
+
+    // ── Email format check (signup only — login already resolved above) ─────
+    if (tab === 'signup') {
+      const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(email.trim())) {
+        setError('Please enter a valid email address');
+        return;
+      }
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+
+    if (!password) {
+      setError('Please enter your password');
       return;
     }
 
     setLoading(true);
     try {
-      // Final username availability check right before creating account
+      // Final uniqueness guard right before account creation
       if (tab === 'signup') {
         const ok = await sb.usernameAvailable(username.trim());
         if (!ok) {
@@ -1248,22 +1317,10 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         }
       }
 
-      // Allow sign-in with username: resolve username → email
-      let loginEmail = email;
-      if (tab === 'login' && email.trim() && !email.includes('@')) {
-        const resolved = await sb.getEmailByUsername(email.trim());
-        if (!resolved) {
-          setError('No account found with that username');
-          setLoading(false);
-          return;
-        }
-        loginEmail = resolved;
-      }
-
       const data =
         tab === 'login'
           ? await sb.signIn(loginEmail, password)
-          : await sb.signUp(email, password, username.trim());
+          : await sb.signUp(email.trim(), password, username.trim());
 
       const raw = data.error?.message || data.error_description || data.msg;
       if (raw) {
@@ -1277,19 +1334,13 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
           msg.includes('invalid login credentials') ||
           msg.includes('invalid credentials')
         ) {
-          setError('Incorrect email or password - please try again');
+          setError('Incorrect email/username or password - please try again');
         } else if (msg.includes('email not confirmed')) {
           setError(
             "Your email isn't confirmed yet - check your inbox for the confirmation link",
           );
         } else if (msg.includes('rate limit') || msg.includes('too many')) {
-          if (tab === 'signup') {
-            setError(
-              'Too many sign-up attempts from this device. You can still try registering with a different email address above.',
-            );
-          } else {
-            setError('Too many attempts - please wait a moment and try again');
-          }
+          setError('Too many attempts - please wait a moment and try again');
         } else {
           setError(raw);
         }
@@ -1297,10 +1348,10 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         return;
       }
 
-      // Email confirmation required (no access_token yet)
+      // Email confirmation pending (Supabase returns no access_token until confirmed)
       if (!data.access_token) {
         setSuccess(
-          "Account created! 🎉 We've sent a confirmation link to your email - click it to activate your account, then sign in.",
+          'Account created! 🎉 Check your email for a confirmation link. Click it to activate your account, then sign in.',
         );
         setLoading(false);
         return;
@@ -1308,22 +1359,22 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
 
       const user = data.user;
       if (!user.user_metadata) user.user_metadata = {};
+      // Ensure username is always populated in the local user object
       if (!user.user_metadata.username) {
         user.user_metadata.username =
           tab === 'signup'
             ? username.trim()
             : user.user_metadata.full_name ||
               user.user_metadata.name ||
-              email.split('@')[0];
+              loginEmail.split('@')[0];
       }
       const store = stayIn ? localStorage : sessionStorage;
       store.setItem('gchat_token', data.access_token);
       store.setItem('gchat_user', JSON.stringify(user));
 
-      // Send welcome DM from admin to new users
+      // Send welcome DM from admin to new users (non-blocking)
       if (tab === 'signup') {
         try {
-          // Look up admin user id from profiles
           const adminProfiles = await fetch(
             `${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(ADMIN_USERNAME)}&select=id,username&limit=1`,
             {
@@ -1335,22 +1386,20 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
           ).then((r) => r.json());
           if (Array.isArray(adminProfiles) && adminProfiles.length > 0) {
             const adminId = adminProfiles[0].id;
-            // Send DM using the new user's token (RLS requires from_user_id = auth.uid()).
-            // We set from_user_id = user.id but from_username = ADMIN_USERNAME so it
-            // displays correctly as a message from JoErl in the DM list.
+            // Send DM with new user's token (RLS: from_user_id must equal auth.uid()).
+            // We set from_username = ADMIN_USERNAME so the conversation shows as
+            // being with JoErl in the new user's DM list.
             await sb.sendDM(
               data.access_token,
-              user.id, // from_user_id must match the token owner for RLS
-              adminId, // to_user_id = admin so it shows as a convo with JoErl
-              ADMIN_WELCOME_DM.username, // from_username shown in the DM thread
-              username.trim(), // to_username
+              user.id,
+              adminId,
+              ADMIN_WELCOME_DM.username,
+              username.trim(),
               ADMIN_WELCOME_DM.message,
               null,
             );
           }
-        } catch {
-          // Welcome DM failure is non-blocking
-        }
+        } catch {}
       }
 
       onAuth(user, data.access_token);
@@ -1396,29 +1445,6 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             ? "Welcome back, m'adamfo!"
             : "Join Ghana's favourite chat platform"}
         </p>
-
-        <button className="btn-google" onClick={() => sb.signInWithGoogle()}>
-          <svg width="18" height="18" viewBox="0 0 24 24">
-            <path
-              fill="#4285F4"
-              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-            />
-          </svg>
-          Continue with Google
-        </button>
-        <div className="divider">or</div>
 
         <div className="modal-tabs">
           <button
@@ -2475,12 +2501,11 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     }
   }
 
-  async function handleDeleteMsg(id, type, msgOwnerId) {
-    const adminDelete = isAdmin(user) && msgOwnerId !== user.id;
+  async function handleDeleteMsg(id, type) {
     if (type === 'room') {
       setMessages((p) => p.filter((m) => m.id !== id));
       try {
-        await sb.deleteMessage(token, id, adminDelete);
+        await sb.deleteMessage(token, id);
       } catch {}
     } else {
       setDmMessages((p) => p.filter((m) => m.id !== id));
@@ -2499,20 +2524,37 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     setDeletingAccount(true);
     setDeleteError('');
     try {
-      await sb.deleteAccount(token);
-      // Clear all stored session data
-      ['gchat_token', 'gchat_user'].forEach((k) => {
-        localStorage.removeItem(k);
-        sessionStorage.removeItem(k);
-      });
-      ['kp_view', 'kp_active_room', 'kp_active_dm'].forEach((k) => {
-        try {
+      const result = await sb.deleteAccount(token);
+      if (result) {
+        // Clear all stored session data
+        ['gchat_token', 'gchat_user'].forEach((k) => {
+          localStorage.removeItem(k);
           sessionStorage.removeItem(k);
-        } catch {}
-      });
-      onLogout();
-    } catch {
-      setDeleteError('Could not delete account. Please try again.');
+        });
+        [
+          'kp_view',
+          'kp_active_room',
+          'kp_active_dm',
+          'kp_room_last_seen',
+        ].forEach((k) => {
+          try {
+            localStorage.removeItem(k);
+          } catch {}
+          try {
+            sessionStorage.removeItem(k);
+          } catch {}
+        });
+        onLogout();
+      } else {
+        setDeleteError(
+          'Could not delete account. Please try again or contact support.',
+        );
+        setDeletingAccount(false);
+      }
+    } catch (e) {
+      setDeleteError(
+        'Network error. Please check your connection and try again.',
+      );
       setDeletingAccount(false);
     }
   }
@@ -3597,11 +3639,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                                               : 'Delete'
                                           }
                                           onClick={() =>
-                                            handleDeleteMsg(
-                                              msg.id,
-                                              'room',
-                                              msg.user_id,
-                                            )
+                                            handleDeleteMsg(msg.id, 'room')
                                           }
                                         >
                                           <svg viewBox="0 0 24 24">
@@ -4014,7 +4052,7 @@ function HomePage({ onShowAuth }) {
         <div className="cta-section">
           <h2 className="cta-title">Ready to join the conversation?</h2>
           <p className="cta-sub">
-            Free forever. No credit card needed. Just community.
+            Free. No credit card needed. Just community.
           </p>
           <button
             className="btn btn-gold btn-hero"
