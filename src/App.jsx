@@ -611,7 +611,7 @@ const css = `
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.4)}}
   .hero-title{font-family:'Montserrat',sans-serif;font-size:clamp(2.8rem,8vw,5.5rem);font-weight:900;line-height:1.05;letter-spacing:-2px;max-width:820px;animation:fadeUp .7s .1s ease both}
   .hero-title .accent{color:var(--gold);position:relative;display:inline-block}
-  .hero-title .accent::after{content:'';position:absolute;bottom:-8px;left:0;right:0;height:5px;background:linear-gradient(90deg,var(--red),var(--gold),var(--green));border-radius:2px}
+  .hero-title .accent::after{content:'';position:absolute;bottom:-42x;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--red),var(--gold),var(--green));border-radius:2px}
   .hero-sub{font-size:clamp(1rem,2.5vw,1.2rem);color:var(--soft);max-width:520px;line-height:1.7;margin-top:20px;animation:fadeUp .7s .2s ease both}
   .hero-cta{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:40px;animation:fadeUp .7s .3s ease both}
   .btn-hero{padding:14px 32px;font-size:1rem;border-radius:100px;font-weight:600}
