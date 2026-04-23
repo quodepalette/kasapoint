@@ -270,6 +270,31 @@ const sb = {
     });
     return r.json();
   },
+  async deleteAccount(token) {
+    // Mark user as deleted in metadata first so messages show "Deleted account"
+    await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ data: { account_deleted: true } }),
+    });
+    // Delete the account via admin RPC (best-effort)
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/rpc/delete_own_account`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({}),
+      });
+    } catch {}
+    return true;
+  },
 };
 
 // ─── FALLBACK DATA ─────────────────────────────────────────────────────────────
@@ -516,6 +541,8 @@ const css = `
   .sidebar-footer{padding:12px 20px;border-top:1px solid var(--bdr);flex-shrink:0}
   .signout-btn{width:100%;padding:9px;border-radius:10px;border:1.5px solid var(--bdr);background:transparent;color:var(--soft);font-family:'Outfit',sans-serif;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
   .signout-btn:hover{border-color:var(--red);color:var(--red);background:rgba(206,17,38,.04)}
+  .delete-account-btn{width:100%;padding:9px;border-radius:10px;border:1.5px solid rgba(206,17,38,.3);background:transparent;color:var(--red);font-family:'Outfit',sans-serif;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px}
+  .delete-account-btn:hover{border-color:var(--red);background:rgba(206,17,38,.08)}
 
   /* ── CHAT AREA ── */
   .chat-area{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);overflow:hidden;height:100dvh}
@@ -560,8 +587,10 @@ const css = `
 .lobby-area {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 24px;
   background: var(--bg);
+  min-height: 0;
 
   /* FIX: prevent centering from parent flex layouts */
   display: flex;
@@ -670,7 +699,9 @@ const css = `
   align-items: center;
   justify-content: center;
   padding: 0 4px;
+  animation: badgePop .3s ease;
 }
+@keyframes badgePop{from{transform:scale(0)}to{transform:scale(1)}}
 
 /* ── DMS ── */
 .lobby-dms-list {
@@ -678,7 +709,6 @@ const css = `
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  overflow: hidden;
 }
 
 .lobby-dm-card {
@@ -695,7 +725,7 @@ const css = `
   position: relative;
   width: 100%;
   min-width: 0;
-  overflow: hidden;
+  text-align: left;
 }
 
 .lobby-dm-card:hover {
@@ -707,11 +737,16 @@ const css = `
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  text-align: left;
 }
 
 .lobby-dm-name {
   font-size: .85rem;
   font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lobby-dm-preview {
@@ -721,12 +756,14 @@ const css = `
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  text-align: left;
 }
 
 .lobby-dm-time {
   font-size: .68rem;
   color: var(--muted);
   flex-shrink: 0;
+  text-align: right;
 }
 
   /* ── REPLY SYSTEM ── */
@@ -905,6 +942,7 @@ const css = `
     .chat-area{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
     .chat-header{flex-shrink:0;padding:10px 14px}
     .messages-area{flex:1;min-height:0;overflow-y:auto;padding:12px 14px}
+    .lobby-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 14px}
     .chat-input-area{flex-shrink:0;padding:10px 14px}
     .reply-bar{flex-shrink:0}
     .welcome-banner{margin:10px 14px 0;flex-shrink:0}
@@ -1633,7 +1671,13 @@ function ChatScreen({ user, token, onLogout, onToast }) {
   const [dmConversations, setDmConversations] = useState([]);
   const [activeDm, setActiveDm] = useState(null); // { userId, username }
   const [dmMessages, setDmMessages] = useState([]);
-  const [view, setView] = useState('lobby'); // 'lobby' | 'room' | 'dm'
+  const [view, setView] = useState(() => {
+    try {
+      return sessionStorage.getItem('kp_view') || 'lobby';
+    } catch {
+      return 'lobby';
+    }
+  });
   const [input, setInput] = useState('');
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
@@ -1651,6 +1695,12 @@ function ChatScreen({ user, token, onLogout, onToast }) {
   const [dmSearchLoading, setDmSearchLoading] = useState(false);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showDeleteWarning, setShowDeleteWarning] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [hasChangedUsernameLocal, setHasChangedUsernameLocal] = useState(
+    !!user?.user_metadata?.username_changed,
+  );
   const [displayUsername, setDisplayUsername] = useState(
     user?.user_metadata?.username ||
       user?.user_metadata?.full_name ||
@@ -1668,8 +1718,8 @@ function ChatScreen({ user, token, onLogout, onToast }) {
   const roomLastSeenRef = useRef(roomLastSeen);
 
   const username = displayUsername;
-  // Track if user already changed username (stored in user metadata flag)
-  const hasChangedUsername = !!user?.user_metadata?.username_changed;
+  // Track if user already changed username — use local state so it updates instantly without reload
+  const hasChangedUsername = hasChangedUsernameLocal;
   const bottomRef = useRef(null);
   const messagesAreaRef = useRef(null);
   const roomPollRef = useRef(null);
@@ -1702,6 +1752,14 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     }
   }
 
+  // Persist view to sessionStorage so reload restores position
+  function setViewPersisted(v) {
+    try {
+      sessionStorage.setItem('kp_view', v);
+    } catch {}
+    setView(v);
+  }
+
   // Load rooms
   useEffect(() => {
     async function load() {
@@ -1710,7 +1768,21 @@ function ChatScreen({ user, token, onLogout, onToast }) {
         const list =
           Array.isArray(data) && data.length > 0 ? data : FALLBACK_ROOMS;
         setRooms(list);
-        // Don't auto-select a room — start on lobby
+        // Restore active room from sessionStorage after rooms are loaded
+        try {
+          const savedRoom = sessionStorage.getItem('kp_active_room');
+          const savedView = sessionStorage.getItem('kp_view');
+          const savedDm = sessionStorage.getItem('kp_active_dm');
+          if (savedView === 'room' && savedRoom) {
+            const r = list.find((x) => x.id === savedRoom) || list[0];
+            if (r) setActiveRoom(r);
+          } else if (savedView === 'dm' && savedDm) {
+            try {
+              setActiveDm(JSON.parse(savedDm));
+            } catch {}
+            setSidebarTab('dms');
+          }
+        } catch {}
       } catch {
         setRooms(FALLBACK_ROOMS);
       }
@@ -1792,9 +1864,9 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     return () => clearInterval(t);
   }, []);
 
-  // Background room badge polling (only when on lobby, every 60 seconds)
+  // Background room badge polling — runs on all views, every 20s
   useEffect(() => {
-    if (view !== 'lobby' || rooms.length === 0) return;
+    if (rooms.length === 0) return;
     async function checkRoomUnread() {
       const newUnread = {};
       for (const room of rooms) {
@@ -1807,7 +1879,6 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                 (m) => new Date(m.created_at) > new Date(lastSeen),
               ).length;
             } else {
-              // Never visited — show a subtle indicator if there are messages
               newUnread[room.id] = 0;
             }
           }
@@ -1816,9 +1887,9 @@ function ChatScreen({ user, token, onLogout, onToast }) {
       setRoomUnread(newUnread);
     }
     checkRoomUnread();
-    const t = setInterval(checkRoomUnread, 60000);
+    const t = setInterval(checkRoomUnread, 20000);
     return () => clearInterval(t);
-  }, [view, rooms, token]);
+  }, [rooms, token]);
 
   // Poll active DM thread
   useEffect(() => {
@@ -1971,6 +2042,28 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     setEditInput(msg.content);
   }
 
+  async function handleDeleteAccount() {
+    setDeletingAccount(true);
+    setDeleteError('');
+    try {
+      await sb.deleteAccount(token);
+      // Clear all stored session data
+      ['gchat_token', 'gchat_user'].forEach((k) => {
+        localStorage.removeItem(k);
+        sessionStorage.removeItem(k);
+      });
+      ['kp_view', 'kp_active_room', 'kp_active_dm'].forEach((k) => {
+        try {
+          sessionStorage.removeItem(k);
+        } catch {}
+      });
+      onLogout();
+    } catch {
+      setDeleteError('Could not delete account. Please try again.');
+      setDeletingAccount(false);
+    }
+  }
+
   function handleMessagesScroll(e) {
     const el = e.currentTarget;
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -2032,7 +2125,13 @@ function ChatScreen({ user, token, onLogout, onToast }) {
   function openDm(userId, uname) {
     userScrolledUp.current = false;
     setActiveDm({ userId, username: uname });
-    setView('dm');
+    try {
+      sessionStorage.setItem(
+        'kp_active_dm',
+        JSON.stringify({ userId, username: uname }),
+      );
+    } catch {}
+    setViewPersisted('dm');
     setSidebarTab('dms');
     setProfilePopup(null);
     setSidebarOpen(false);
@@ -2087,7 +2186,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
           onSave={(newName) => {
             setDisplayUsername(newName);
             setShowUsernameModal(false);
-            // Persist flag to localStorage so we know they've changed it
+            // Persist updated user to localStorage so hasChangedUsername is true on next render
             const stored =
               localStorage.getItem('gchat_user') ||
               sessionStorage.getItem('gchat_user');
@@ -2097,10 +2196,13 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                 if (!u.user_metadata) u.user_metadata = {};
                 u.user_metadata.username = newName;
                 u.user_metadata.username_changed = true;
-                localStorage.setItem('gchat_user', JSON.stringify(u));
-                sessionStorage.setItem('gchat_user', JSON.stringify(u));
+                const updated = JSON.stringify(u);
+                localStorage.setItem('gchat_user', updated);
+                sessionStorage.setItem('gchat_user', updated);
               } catch {}
             }
+            // Force hasChangedUsername to true immediately without reload
+            setHasChangedUsernameLocal(true);
           }}
           onClose={() => setShowUsernameModal(false)}
         />
@@ -2127,7 +2229,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                 padding: 0,
               }}
               onClick={() => {
-                setView('lobby');
+                setViewPersisted('lobby');
                 setSidebarOpen(false);
               }}
             >
@@ -2206,7 +2308,10 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                   className={`room-item ${view === 'room' && activeRoom?.id === r.id ? 'active' : ''}`}
                   onClick={() => {
                     setActiveRoom(r);
-                    setView('room');
+                    try {
+                      sessionStorage.setItem('kp_active_room', r.id);
+                    } catch {}
+                    setViewPersisted('room');
                     setSidebarOpen(false);
                   }}
                 >
@@ -2361,7 +2466,65 @@ function ChatScreen({ user, token, onLogout, onToast }) {
           <button className="signout-btn" onClick={onLogout}>
             <span>&#x238B;</span> Sign Out
           </button>
+          <button
+            className="delete-account-btn"
+            onClick={() => setShowDeleteWarning(true)}
+          >
+            🗑 Delete Account
+          </button>
         </div>
+
+        {/* Delete account warning dialog */}
+        {showDeleteWarning && (
+          <div
+            className="username-modal-overlay"
+            onClick={(e) =>
+              e.target === e.currentTarget && setShowDeleteWarning(false)
+            }
+          >
+            <div className="username-modal">
+              <button
+                className="pp-close"
+                onClick={() => setShowDeleteWarning(false)}
+              >
+                ✕
+              </button>
+              <h3 style={{ color: 'var(--red)' }}>⚠ Delete Account</h3>
+              <p className="um-sub" style={{ marginTop: 8 }}>
+                This action is <strong>permanent and irreversible</strong>. Your
+                account will be deleted and you will be signed out immediately.
+              </p>
+              <div
+                className="um-warning"
+                style={{
+                  background: 'rgba(206,17,38,.08)',
+                  borderColor: 'rgba(206,17,38,.3)',
+                  color: 'var(--red)',
+                }}
+              >
+                All your data will be lost. Your messages will show as{' '}
+                <em>"Deleted account"</em> in chats.
+              </div>
+              {deleteError && <div className="form-error">⚠ {deleteError}</div>}
+              <div className="um-actions">
+                <button
+                  className="um-cancel"
+                  onClick={() => setShowDeleteWarning(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="um-save"
+                  style={{ background: 'var(--red)' }}
+                  disabled={deletingAccount}
+                  onClick={handleDeleteAccount}
+                >
+                  {deletingAccount ? 'Deleting...' : 'Yes, delete my account'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── MAIN AREA ── */}
@@ -2408,7 +2571,10 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                 <div className="chat-room-desc">Private conversation</div>
               </div>
               <div className="chat-header-right">
-                <button className="back-btn" onClick={() => setView('lobby')}>
+                <button
+                  className="back-btn"
+                  onClick={() => setViewPersisted('lobby')}
+                >
                   ← Home
                 </button>
               </div>
@@ -2428,7 +2594,10 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                 <div className="chat-room-desc">{activeRoom.description}</div>
               </div>
               <div className="chat-header-right">
-                <button className="back-btn" onClick={() => setView('lobby')}>
+                <button
+                  className="back-btn"
+                  onClick={() => setViewPersisted('lobby')}
+                >
                   ← Home
                 </button>
                 <span className="member-count">🟢 Live</span>
@@ -2489,7 +2658,10 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                     className="lobby-room-card"
                     onClick={() => {
                       setActiveRoom(r);
-                      setView('room');
+                      try {
+                        sessionStorage.setItem('kp_active_room', r.id);
+                      } catch {}
+                      setViewPersisted('room');
                       setSidebarOpen(false);
                     }}
                   >
@@ -2630,27 +2802,45 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                               <div
                                 className="msg-avatar msg-avatar-clickable"
                                 style={{
-                                  background: avatarColor(group.sender),
+                                  background:
+                                    group.sender === '[deleted]'
+                                      ? 'var(--muted)'
+                                      : avatarColor(group.sender),
                                 }}
                                 onClick={() =>
+                                  group.sender !== '[deleted]' &&
                                   setProfilePopup({
                                     username: group.sender,
                                     userId: group.userId,
                                   })
                                 }
                               >
-                                {getInitials(group.sender)}
+                                {group.sender === '[deleted]'
+                                  ? '✕'
+                                  : getInitials(group.sender)}
                               </div>
                               <span
                                 className="msg-sender-name"
+                                style={
+                                  group.sender === '[deleted]'
+                                    ? {
+                                        color: 'var(--muted)',
+                                        fontStyle: 'italic',
+                                        cursor: 'default',
+                                      }
+                                    : {}
+                                }
                                 onClick={() =>
+                                  group.sender !== '[deleted]' &&
                                   setProfilePopup({
                                     username: group.sender,
                                     userId: group.userId,
                                   })
                                 }
                               >
-                                {group.sender}
+                                {group.sender === '[deleted]'
+                                  ? 'Deleted account'
+                                  : group.sender}
                               </span>
                               <span className="msg-sender-time">
                                 {timeAgo(group.messages[0].created_at)}
@@ -2850,11 +3040,25 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                     <div className="msg-sender-row">
                       <div
                         className="msg-avatar"
-                        style={{ background: avatarColor(sender) }}
+                        style={{
+                          background:
+                            sender === '[deleted]'
+                              ? 'var(--muted)'
+                              : avatarColor(sender),
+                        }}
                       >
-                        {getInitials(sender)}
+                        {sender === '[deleted]' ? '✕' : getInitials(sender)}
                       </div>
-                      <span className="msg-sender-name">{sender}</span>
+                      <span
+                        className="msg-sender-name"
+                        style={
+                          sender === '[deleted]'
+                            ? { color: 'var(--muted)', fontStyle: 'italic' }
+                            : {}
+                        }
+                      >
+                        {sender === '[deleted]' ? 'Deleted account' : sender}
+                      </span>
                       <span className="msg-sender-time">
                         {timeAgo(msg.created_at)}
                       </span>
