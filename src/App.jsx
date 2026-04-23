@@ -5,6 +5,15 @@ const SUPABASE_URL = 'https://maczzisuufzycdgfizeo.supabase.co';
 const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hY3p6aXN1dWZ6eWNkZ2ZpemVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NTcwMDgsImV4cCI6MjA5MjQzMzAwOH0.WQBuMsYKwuW4VeRe6ZG_OA_rf59YfDVg327i4MObuFA';
 
+// ─── ADMIN CONFIG ──────────────────────────────────────────────────────────────
+const ADMIN_EMAIL = 'jo.erl444@gmail.com';
+const ADMIN_USERNAME = 'JoErl';
+// Welcome DM sender — this ID will be fetched dynamically but we keep the email as reference
+const ADMIN_WELCOME_DM = {
+  username: ADMIN_USERNAME,
+  message: `👋 Akwaaba to KasaPoint! I'm JoErl, the founder of this platform.\n\nHere are a few things to keep in mind:\n\n📋 Community Rules\n• Treat everyone with respect — no hate speech, bullying, or harassment.\n• No sharing of explicit, adult, or NSFW material of any kind.\n• No posting of external links, referral codes, or promotional content.\n• Do not share personal information (phone numbers, addresses, etc.) publicly.\n• Spam and repetitive messages are not allowed.\n• Impersonating other users or KasaPoint staff is strictly prohibited.\n\n🗺️ How to Navigate\n• Lobby — your home base. See all rooms and recent DMs.\n• Rooms — tap any room card to join the conversation.\n• Messages (💬) — use the sidebar tab to search for any user and start a private chat.\n• Profile — your name and settings appear in the sidebar. You can change your username once, and update your password anytime.\n\nWelcome to the family — enjoy the vibes! 🇬🇭✨`,
+};
+
 // ─── SUPABASE CLIENT ───────────────────────────────────────────────────────────
 const sb = {
   async signUp(email, password, username) {
@@ -239,6 +248,52 @@ const sb = {
       },
     });
   },
+  async forgotPassword(email) {
+    const redirectTo = encodeURIComponent(
+      window.location.origin + window.location.pathname + '?reset_password=1',
+    );
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        email,
+        redirect_to: decodeURIComponent(redirectTo),
+      }),
+    });
+    return r.json();
+  },
+  async resetPasswordWithToken(accessToken, newPassword) {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ password: newPassword }),
+    });
+    return r.json();
+  },
+  async getUserByEmail(token, email) {
+    // Search profiles by email via RPC or fallback
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}&select=id,username&limit=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+      },
+    );
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length > 0) return data[0];
+    }
+    return null;
+  },
   async changePassword(token, newPassword) {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       method: 'PUT',
@@ -350,6 +405,20 @@ function avatarColor(name) {
     h = (h * 31 + name.charCodeAt(i)) % c.length;
   return c[h];
 }
+function isAdmin(user) {
+  if (!user) return false;
+  const email = user.email?.toLowerCase();
+  const uname = (
+    user.user_metadata?.username ||
+    user.user_metadata?.full_name ||
+    ''
+  ).toLowerCase();
+  return (
+    email === ADMIN_EMAIL.toLowerCase() ||
+    uname === ADMIN_USERNAME.toLowerCase()
+  );
+}
+
 function pwStrength(p) {
   if (!p) return 0;
   let s = 0;
@@ -951,6 +1020,21 @@ const css = `
   }
 
 
+  /* ── ADMIN / PREMIUM BADGE ── */
+  .badge-premium{display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,#D4AF37,#F0CF6A,#B8941F);color:#fff;font-size:.58rem;font-weight:700;padding:2px 7px;border-radius:100px;text-transform:uppercase;letter-spacing:.06em;vertical-align:middle;margin-left:5px;box-shadow:0 1px 6px rgba(212,175,55,.5);flex-shrink:0;white-space:nowrap}
+  .badge-admin{display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,#CE1126,#a30e1e);color:#fff;font-size:.58rem;font-weight:700;padding:2px 7px;border-radius:100px;text-transform:uppercase;letter-spacing:.06em;vertical-align:middle;margin-left:5px;box-shadow:0 1px 6px rgba(206,17,38,.4);flex-shrink:0;white-space:nowrap}
+  .msg-sender-badges{display:inline-flex;align-items:center;gap:3px;margin-left:4px}
+  .admin-panel-btn{padding:5px 12px;border-radius:100px;border:1px solid rgba(206,17,38,.4);background:rgba(206,17,38,.1);color:#CE1126;font-family:'Outfit',sans-serif;font-size:.7rem;font-weight:600;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:5px;margin-top:6px}
+  .admin-panel-btn:hover{background:rgba(206,17,38,.2)}
+
+  /* ── FORGOT PASSWORD ── */
+  .forgot-link{display:block;text-align:right;margin-top:-4px;margin-bottom:10px;font-size:.75rem;color:var(--gold-d);cursor:pointer;text-decoration:none;background:none;border:none;font-family:'Outfit',sans-serif;padding:0}
+  .forgot-link:hover{color:var(--gold);text-decoration:underline}
+  .reset-pw-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;animation:fadeIn .15s ease}
+  .reset-pw-box{background:var(--sur);border-radius:20px;padding:32px 28px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.25);animation:slideUp .25s ease;position:relative}
+  .reset-pw-box h3{font-family:'GFS Didot',serif;font-size:1.2rem;font-weight:700;margin-bottom:6px}
+  .reset-pw-box .sub{font-size:.82rem;color:var(--muted);margin-bottom:20px;line-height:1.5}
+
   /* ── ANIMATIONS ── */
   @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -1015,6 +1099,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [usernameStatus, setUsernameStatus] = useState(null); // null|'checking'|'available'|'taken'
+  const [showForgot, setShowForgot] = useState(false);
 
   const strength = pwStrength(password);
   const strengthColors = ['#bbb', '#CE1126', '#f59e0b', '#D4AF37', '#006B3F'];
@@ -1163,6 +1248,37 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       const store = stayIn ? localStorage : sessionStorage;
       store.setItem('gchat_token', data.access_token);
       store.setItem('gchat_user', JSON.stringify(user));
+
+      // Send welcome DM from admin to new users
+      if (tab === 'signup') {
+        try {
+          // Look up admin user id from profiles
+          const adminProfiles = await fetch(
+            `${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(ADMIN_USERNAME)}&select=id,username&limit=1`,
+            {
+              headers: {
+                Authorization: `Bearer ${data.access_token}`,
+                apikey: SUPABASE_ANON_KEY,
+              },
+            },
+          ).then((r) => r.json());
+          if (Array.isArray(adminProfiles) && adminProfiles.length > 0) {
+            const adminId = adminProfiles[0].id;
+            await sb.sendDM(
+              data.access_token,
+              adminId,
+              user.id,
+              ADMIN_WELCOME_DM.username,
+              username.trim(),
+              ADMIN_WELCOME_DM.message,
+              null,
+            );
+          }
+        } catch {
+          // Welcome DM failure is non-blocking
+        }
+      }
+
       onAuth(user, data.access_token);
     } catch {
       setError('Network error - please check your connection and try again');
@@ -1187,6 +1303,16 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         <button className="modal-close" onClick={onClose} aria-label="Close">
           ←
         </button>
+
+        {showForgot && (
+          <ForgotPasswordModal
+            onClose={() => setShowForgot(false)}
+            onSwitchToLogin={() => {
+              setShowForgot(false);
+              switchTab('login');
+            }}
+          />
+        )}
 
         <div className="modal-logo">
           Kasa<span>Point</span> &bull;
@@ -1351,6 +1477,16 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             </>
           )}
         </div>
+
+        {tab === 'login' && (
+          <button
+            type="button"
+            className="forgot-link"
+            onClick={() => setShowForgot(true)}
+          >
+            Forgot password?
+          </button>
+        )}
 
         {tab === 'signup' && (
           <div className="form-group">
@@ -1662,6 +1798,241 @@ function ChangePasswordModal({ token, onClose, onToast }) {
   );
 }
 
+// ─── FORGOT PASSWORD MODAL ────────────────────────────────────────────────────
+function ForgotPasswordModal({ onClose, onSwitchToLogin }) {
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSend() {
+    const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await sb.forgotPassword(email.trim());
+      // Always show success to avoid email enumeration
+      setSent(true);
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div
+      className="reset-pw-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="reset-pw-box">
+        <button className="pp-close" onClick={onClose}>
+          ✕
+        </button>
+        <div className="modal-logo" style={{ marginBottom: 12 }}>
+          Kasa<span>Point</span> &bull;
+        </div>
+        {sent ? (
+          <>
+            <h3>Check your inbox 📬</h3>
+            <p className="sub">
+              If an account exists for <strong>{email}</strong>, we've sent a
+              password reset link. Click the link in the email to set a new
+              password.
+            </p>
+            <p className="sub" style={{ marginTop: 8 }}>
+              Didn't get it? Check your spam folder or try again in a few
+              minutes.
+            </p>
+            <button
+              className="btn btn-gold btn-full"
+              style={{ marginTop: 16 }}
+              onClick={onSwitchToLogin || onClose}
+            >
+              Back to Sign In
+            </button>
+          </>
+        ) : (
+          <>
+            <h3>Reset Password</h3>
+            <p className="sub">
+              Enter your email address and we'll send you a link to reset your
+              password.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Email Address</label>
+              <input
+                className="form-input"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                autoFocus
+                autoComplete="email"
+              />
+            </div>
+            {error && <div className="form-error">⚠ {error}</div>}
+            <button
+              className="btn btn-gold btn-full"
+              style={{ marginTop: 8 }}
+              onClick={handleSend}
+              disabled={loading}
+            >
+              {loading ? 'Sending...' : 'Send Reset Link'}
+            </button>
+            <button
+              className="forgot-link"
+              style={{
+                textAlign: 'center',
+                marginTop: 12,
+                display: 'block',
+                width: '100%',
+              }}
+              onClick={onSwitchToLogin || onClose}
+            >
+              ← Back to Sign In
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── RESET PASSWORD MODAL (from email link) ────────────────────────────────────
+function ResetPasswordModal({ accessToken, onClose, onToast }) {
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const strength = pwStrength(newPw);
+  const strengthColors = ['#bbb', '#CE1126', '#f59e0b', '#D4AF37', '#006B3F'];
+  const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+
+  async function handleReset() {
+    if (!newPw || newPw !== confirmPw) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (strength < 2) {
+      setError('Please choose a stronger password.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const res = await sb.resetPasswordWithToken(accessToken, newPw);
+      if (res?.id || res?.email) {
+        onToast({
+          msg: '🔒 Password reset successfully! Please sign in.',
+          type: 'success',
+        });
+        onClose();
+      } else {
+        setError(
+          res?.msg ||
+            res?.message ||
+            'Could not reset password. The link may have expired.',
+        );
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="reset-pw-overlay">
+      <div className="reset-pw-box">
+        <div className="modal-logo" style={{ marginBottom: 12 }}>
+          Kasa<span>Point</span> &bull;
+        </div>
+        <h3>Set New Password</h3>
+        <p className="sub">Choose a strong new password for your account.</p>
+        <div className="form-group">
+          <label className="form-label">New Password</label>
+          <div className="pw-wrap">
+            <input
+              className="form-input"
+              type={showPw ? 'text' : 'password'}
+              placeholder="••••••••"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              style={{ paddingRight: 52 }}
+              autoFocus
+              autoComplete="new-password"
+            />
+            <button
+              className="pw-toggle"
+              type="button"
+              onClick={() => setShowPw((v) => !v)}
+            >
+              {showPw ? '🙈' : '👁'}
+            </button>
+          </div>
+          {newPw.length > 0 && (
+            <>
+              <div className="pw-bar">
+                <div
+                  className="pw-bar-fill"
+                  style={{
+                    width: `${strength * 25}%`,
+                    background: strengthColors[strength],
+                  }}
+                />
+              </div>
+              <div
+                className="pw-hint"
+                style={{ color: strengthColors[strength] }}
+              >
+                {strengthLabels[strength]}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Confirm New Password</label>
+          <div className="pw-wrap">
+            <input
+              className="form-input"
+              type={showPw ? 'text' : 'password'}
+              placeholder="••••••••"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              style={{
+                paddingRight: 52,
+                borderColor:
+                  confirmPw && confirmPw !== newPw
+                    ? 'var(--red)'
+                    : confirmPw && confirmPw === newPw
+                      ? 'var(--green)'
+                      : undefined,
+              }}
+              autoComplete="new-password"
+            />
+          </div>
+        </div>
+        {error && <div className="form-error">⚠ {error}</div>}
+        <div className="um-actions">
+          <button
+            className="um-save"
+            onClick={handleReset}
+            disabled={loading || !newPw || newPw !== confirmPw}
+          >
+            {loading ? 'Saving...' : 'Set New Password'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CHAT SCREEN ───────────────────────────────────────────────────────────────
 function ChatScreen({ user, token, onLogout, onToast }) {
   const [rooms, setRooms] = useState([]);
@@ -1696,6 +2067,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
   const [showUsernameModal, setShowUsernameModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showDeleteWarning, setShowDeleteWarning] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [hasChangedUsernameLocal, setHasChangedUsernameLocal] = useState(
@@ -2245,7 +2617,24 @@ function ChatScreen({ user, token, onLogout, onToast }) {
             >
               {getInitials(username)}
             </div>
-            <div className="profile-name">{username}</div>
+            <div
+              className="profile-name"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                flexWrap: 'wrap',
+              }}
+            >
+              {username}
+              {isAdmin(user) && (
+                <>
+                  <span className="badge-admin">👑 Admin</span>
+                  <span className="badge-premium">⭐ Premium</span>
+                </>
+              )}
+            </div>
             {joinedDate && (
               <div className="profile-joined">Joined {joinedDate}</div>
             )}
@@ -2440,7 +2829,24 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                         {getInitials(conv.username)}
                       </div>
                       <div className="dm-info">
-                        <div className="dm-name">{conv.username}</div>
+                        <div
+                          className="dm-name"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {conv.username}
+                          {conv.username === ADMIN_USERNAME && (
+                            <span
+                              className="badge-admin"
+                              style={{ fontSize: '.52rem', padding: '1px 5px' }}
+                            >
+                              👑
+                            </span>
+                          )}
+                        </div>
                         <div className="dm-preview">
                           {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
                           {conv.lastMsg.content}
@@ -2463,6 +2869,19 @@ function ChatScreen({ user, token, onLogout, onToast }) {
         )}
 
         <div className="sidebar-footer">
+          {isAdmin(user) && (
+            <button
+              className="admin-panel-btn"
+              onClick={() => setShowAdminPanel(true)}
+              style={{
+                width: '100%',
+                marginBottom: 6,
+                justifyContent: 'center',
+              }}
+            >
+              👑 Admin Panel
+            </button>
+          )}
           <button className="signout-btn" onClick={onLogout}>
             <span>&#x238B;</span> Sign Out
           </button>
@@ -2525,9 +2944,99 @@ function ChatScreen({ user, token, onLogout, onToast }) {
             </div>
           </div>
         )}
+        {/* Admin panel */}
+        {showAdminPanel && (
+          <div
+            className="username-modal-overlay"
+            onClick={(e) =>
+              e.target === e.currentTarget && setShowAdminPanel(false)
+            }
+          >
+            <div className="username-modal" style={{ maxWidth: 420 }}>
+              <button
+                className="pp-close"
+                onClick={() => setShowAdminPanel(false)}
+              >
+                ✕
+              </button>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="badge-admin">👑 Admin</span> Admin Panel
+              </h3>
+              <p className="um-sub" style={{ marginTop: 8 }}>
+                Welcome, <strong>{username}</strong>. You have full admin access
+                to KasaPoint.
+              </p>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                  marginTop: 14,
+                }}
+              >
+                <div
+                  style={{
+                    background: 'var(--sur2)',
+                    borderRadius: 12,
+                    padding: '12px 14px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      fontSize: '.82rem',
+                      marginBottom: 4,
+                    }}
+                  >
+                    🛡 Admin Privileges
+                  </div>
+                  <ul
+                    style={{
+                      listStyle: 'none',
+                      padding: 0,
+                      margin: 0,
+                      fontSize: '.78rem',
+                      color: 'var(--soft)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 5,
+                    }}
+                  >
+                    <li>✓ Delete any message in any room</li>
+                    <li>✓ Delete any direct message</li>
+                    <li>✓ Pinned badge visible to all users</li>
+                    <li>✓ Premium badge — early access to new features</li>
+                    <li>✓ Auto welcome DM sent to every new user</li>
+                    <li>✓ Future: user management & moderation tools</li>
+                  </ul>
+                </div>
+                <div
+                  style={{
+                    background: 'rgba(212,175,55,.08)',
+                    border: '1px solid rgba(212,175,55,.25)',
+                    borderRadius: 12,
+                    padding: '10px 14px',
+                    fontSize: '.75rem',
+                    color: 'var(--gold-d)',
+                  }}
+                >
+                  ⭐ <strong>Premium</strong> — Your account is permanently
+                  premium. Future paid features will be unlocked for you
+                  automatically.
+                </div>
+              </div>
+              <div className="um-actions" style={{ marginTop: 18 }}>
+                <button
+                  className="um-cancel"
+                  onClick={() => setShowAdminPanel(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* ── MAIN AREA ── */}
       <div className="chat-area">
         <div className="kente" style={{ flexShrink: 0 }} />
 
@@ -2709,7 +3218,24 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                         {getInitials(conv.username)}
                       </div>
                       <div className="lobby-dm-info">
-                        <div className="lobby-dm-name">{conv.username}</div>
+                        <div
+                          className="lobby-dm-name"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {conv.username}
+                          {conv.username === ADMIN_USERNAME && (
+                            <span
+                              className="badge-admin"
+                              style={{ fontSize: '.52rem', padding: '1px 5px' }}
+                            >
+                              👑
+                            </span>
+                          )}
+                        </div>
                         <div className="lobby-dm-preview">
                           {conv.lastMsg.from_user_id === user.id ? 'You: ' : ''}
                           {conv.lastMsg.content}
@@ -2842,6 +3368,14 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                                   ? 'Deleted account'
                                   : group.sender}
                               </span>
+                              {group.sender === ADMIN_USERNAME && (
+                                <span className="msg-sender-badges">
+                                  <span className="badge-admin">👑 Admin</span>
+                                  <span className="badge-premium">
+                                    ⭐ Premium
+                                  </span>
+                                </span>
+                              )}
                               <span className="msg-sender-time">
                                 {timeAgo(group.messages[0].created_at)}
                               </span>
@@ -2959,20 +3493,28 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                                         <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
                                       </svg>
                                     </button>
-                                    {isOwn && (
+                                    {(isOwn || isAdmin(user)) && (
                                       <>
-                                        <button
-                                          className="msg-act-btn"
-                                          title="Edit"
-                                          onClick={() => startEdit(msg, 'room')}
-                                        >
-                                          <svg viewBox="0 0 24 24">
-                                            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                                          </svg>
-                                        </button>
+                                        {isOwn && (
+                                          <button
+                                            className="msg-act-btn"
+                                            title="Edit"
+                                            onClick={() =>
+                                              startEdit(msg, 'room')
+                                            }
+                                          >
+                                            <svg viewBox="0 0 24 24">
+                                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                            </svg>
+                                          </button>
+                                        )}
                                         <button
                                           className="msg-act-btn del"
-                                          title="Delete"
+                                          title={
+                                            isAdmin(user) && !isOwn
+                                              ? 'Delete (Admin)'
+                                              : 'Delete'
+                                          }
                                           onClick={() =>
                                             handleDeleteMsg(msg.id, 'room')
                                           }
@@ -3059,6 +3601,12 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                       >
                         {sender === '[deleted]' ? 'Deleted account' : sender}
                       </span>
+                      {sender === ADMIN_USERNAME && (
+                        <span className="msg-sender-badges">
+                          <span className="badge-admin">👑 Admin</span>
+                          <span className="badge-premium">⭐ Premium</span>
+                        </span>
+                      )}
                       <span className="msg-sender-time">
                         {timeAgo(msg.created_at)}
                       </span>
@@ -3151,20 +3699,26 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                               <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
                             </svg>
                           </button>
-                          {isOwn && (
+                          {(isOwn || isAdmin(user)) && (
                             <>
-                              <button
-                                className="msg-act-btn"
-                                title="Edit"
-                                onClick={() => startEdit(msg, 'dm')}
-                              >
-                                <svg viewBox="0 0 24 24">
-                                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                                </svg>
-                              </button>
+                              {isOwn && (
+                                <button
+                                  className="msg-act-btn"
+                                  title="Edit"
+                                  onClick={() => startEdit(msg, 'dm')}
+                                >
+                                  <svg viewBox="0 0 24 24">
+                                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                                  </svg>
+                                </button>
+                              )}
                               <button
                                 className="msg-act-btn del"
-                                title="Delete"
+                                title={
+                                  isAdmin(user) && !isOwn
+                                    ? 'Delete (Admin)'
+                                    : 'Delete'
+                                }
                                 onClick={() => handleDeleteMsg(msg.id, 'dm')}
                               >
                                 <svg viewBox="0 0 24 24">
@@ -3413,6 +3967,7 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(null);
   const [toast, setToast] = useState(null);
   const [booting, setBooting] = useState(true);
+  const [resetToken, setResetToken] = useState(null); // password reset flow
 
   // Restore session + handle Google OAuth callback
   useEffect(() => {
@@ -3422,7 +3977,19 @@ export default function App() {
       if (hash.includes('access_token')) {
         const params = new URLSearchParams(hash.slice(1));
         const t = params.get('access_token');
+        const type = params.get('type'); // 'recovery' for password reset
         if (t) {
+          // Password reset flow — don't log user in, show reset modal
+          if (type === 'recovery') {
+            setResetToken(t);
+            window.history.replaceState(
+              {},
+              document.title,
+              window.location.pathname,
+            );
+            setBooting(false);
+            return;
+          }
           try {
             const u = await sb.getUser(t);
             if (u && u.id) {
@@ -3518,6 +4085,16 @@ export default function App() {
           msg={toast.msg}
           type={toast.type}
           onDone={() => setToast(null)}
+        />
+      )}
+      {resetToken && (
+        <ResetPasswordModal
+          accessToken={resetToken}
+          onClose={() => {
+            setResetToken(null);
+            setShowAuth('login');
+          }}
+          onToast={setToast}
         />
       )}
       {showAuth && (
