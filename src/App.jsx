@@ -3269,7 +3269,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                   className="back-btn"
                   onClick={() => setViewPersisted('lobby')}
                 >
-                  ⬅ Home
+                  Home
                 </button>
                 <span className="member-count">🟢 Live</span>
               </div>
