@@ -43,6 +43,22 @@ const sb = {
     });
     return r.json();
   },
+  async getEmailByUsername(username) {
+    // Look up the email address associated with a username from the profiles table
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?username=ilike.${encodeURIComponent(username.trim())}&select=email&limit=1`,
+      {
+        headers: { apikey: SUPABASE_ANON_KEY },
+      },
+    );
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length > 0 && data[0].email) {
+        return data[0].email;
+      }
+    }
+    return null;
+  },
   async getUser(token) {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
@@ -219,7 +235,25 @@ const sb = {
       body: JSON.stringify({ content, edited_at: new Date().toISOString() }),
     });
   },
-  async deleteMessage(token, id) {
+  async deleteMessage(token, id, isAdminDelete = false) {
+    if (isAdminDelete) {
+      // Try admin RPC first (requires a Supabase function with SECURITY DEFINER)
+      try {
+        const rpc = await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/admin_delete_message`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+              apikey: SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ message_id: id }),
+          },
+        );
+        if (rpc.ok) return;
+      } catch {}
+    }
     await fetch(`${SUPABASE_URL}/rest/v1/messages?id=eq.${id}`, {
       method: 'DELETE',
       headers: {
@@ -307,6 +341,7 @@ const sb = {
     return r.json();
   },
   async updateUsername(token, newUsername) {
+    // Update auth metadata
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       method: 'PUT',
       headers: {
@@ -323,7 +358,22 @@ const sb = {
         },
       }),
     });
-    return r.json();
+    const result = await r.json();
+    // Also update the profiles table so sign-in-by-username and DM search work
+    if (result?.id) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${result.id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ username: newUsername }),
+        });
+      } catch {}
+    }
+    return result;
   },
   async deleteAccount(token) {
     // Mark user as deleted in metadata first so messages show "Deleted account"
@@ -1159,11 +1209,14 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
     }
     // Replace your current regex with this stricter one
     const emailRegex = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(email)) {
-      setError('Please enter a valid email address');
+    // Allow plain usernames on the login tab (resolved to email later)
+    const isUsernameLogin =
+      tab === 'login' && email.trim() && !email.includes('@');
+    if (!isUsernameLogin && !emailRegex.test(email)) {
+      setError('Please enter a valid email address or username');
       return;
     }
-    // Block obvious disposable domains
+    // Block obvious disposable domains (skip if signing in with username)
     const disposable = [
       'mailinator.com',
       'guerrillamail.com',
@@ -1172,7 +1225,7 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       'yopmail.com',
     ];
     const domain = email.split('@')[1]?.toLowerCase();
-    if (disposable.includes(domain)) {
+    if (!isUsernameLogin && disposable.includes(domain)) {
       setError(
         'Please use a real email address - disposable emails are not allowed',
       );
@@ -1195,9 +1248,21 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         }
       }
 
+      // Allow sign-in with username: resolve username → email
+      let loginEmail = email;
+      if (tab === 'login' && email.trim() && !email.includes('@')) {
+        const resolved = await sb.getEmailByUsername(email.trim());
+        if (!resolved) {
+          setError('No account found with that username');
+          setLoading(false);
+          return;
+        }
+        loginEmail = resolved;
+      }
+
       const data =
         tab === 'login'
-          ? await sb.signIn(email, password)
+          ? await sb.signIn(loginEmail, password)
           : await sb.signUp(email, password, username.trim());
 
       const raw = data.error?.message || data.error_description || data.msg;
@@ -1218,7 +1283,13 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
             "Your email isn't confirmed yet - check your inbox for the confirmation link",
           );
         } else if (msg.includes('rate limit') || msg.includes('too many')) {
-          setError('Too many attempts - please wait a moment and try again');
+          if (tab === 'signup') {
+            setError(
+              'Too many sign-up attempts from this device. You can still try registering with a different email address above.',
+            );
+          } else {
+            setError('Too many attempts - please wait a moment and try again');
+          }
         } else {
           setError(raw);
         }
@@ -1264,12 +1335,15 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
           ).then((r) => r.json());
           if (Array.isArray(adminProfiles) && adminProfiles.length > 0) {
             const adminId = adminProfiles[0].id;
+            // Send DM using the new user's token (RLS requires from_user_id = auth.uid()).
+            // We set from_user_id = user.id but from_username = ADMIN_USERNAME so it
+            // displays correctly as a message from JoErl in the DM list.
             await sb.sendDM(
               data.access_token,
-              adminId,
-              user.id,
-              ADMIN_WELCOME_DM.username,
-              username.trim(),
+              user.id, // from_user_id must match the token owner for RLS
+              adminId, // to_user_id = admin so it shows as a convo with JoErl
+              ADMIN_WELCOME_DM.username, // from_username shown in the DM thread
+              username.trim(), // to_username
               ADMIN_WELCOME_DM.message,
               null,
             );
@@ -1421,11 +1495,17 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
         )}
 
         <div className="form-group">
-          <label className="form-label">Email Address</label>
+          <label className="form-label">
+            {tab === 'login' ? 'Email or Username' : 'Email Address'}
+          </label>
           <input
             className="form-input"
-            type="email"
-            placeholder="you@example.com"
+            type={tab === 'login' ? 'text' : 'email'}
+            placeholder={
+              tab === 'login'
+                ? 'you@example.com or your username'
+                : 'you@example.com'
+            }
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoComplete="email"
@@ -2395,11 +2475,12 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     }
   }
 
-  async function handleDeleteMsg(id, type) {
+  async function handleDeleteMsg(id, type, msgOwnerId) {
+    const adminDelete = isAdmin(user) && msgOwnerId !== user.id;
     if (type === 'room') {
       setMessages((p) => p.filter((m) => m.id !== id));
       try {
-        await sb.deleteMessage(token, id);
+        await sb.deleteMessage(token, id, adminDelete);
       } catch {}
     } else {
       setDmMessages((p) => p.filter((m) => m.id !== id));
@@ -3516,7 +3597,11 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                                               : 'Delete'
                                           }
                                           onClick={() =>
-                                            handleDeleteMsg(msg.id, 'room')
+                                            handleDeleteMsg(
+                                              msg.id,
+                                              'room',
+                                              msg.user_id,
+                                            )
                                           }
                                         >
                                           <svg viewBox="0 0 24 24">
