@@ -5,7 +5,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable no-empty */
 import { useState, useEffect, useRef } from 'react';
-import './App.css';
 
 // ─── CONFIG ────────────────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://maczzisuufzycdgfizeo.supabase.co';
