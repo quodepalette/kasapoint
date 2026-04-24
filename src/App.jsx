@@ -33,6 +33,20 @@ const sb = {
     });
     return r.json();
   },
+  async refreshSession(refreshToken) {
+    const r = await fetch(
+      `${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      },
+    );
+    return r.json();
+  },
   async signIn(email, password) {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
@@ -611,7 +625,7 @@ const css = `
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.4)}}
   .hero-title{font-family:'Montserrat',sans-serif;font-size:clamp(2.8rem,8vw,5.5rem);font-weight:900;line-height:1.05;letter-spacing:-2px;max-width:820px;animation:fadeUp .7s .1s ease both}
   .hero-title .accent{color:var(--gold);position:relative;display:inline-block}
-  .hero-title .accent::after{content:'';position:absolute;bottom:-42x;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--red),var(--gold),var(--green));border-radius:2px}
+  .hero-title .accent::after{content:'';position:absolute;bottom:-4x;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--red),var(--gold),var(--green));border-radius:2px}
   .hero-sub{font-size:clamp(1rem,2.5vw,1.2rem);color:var(--soft);max-width:520px;line-height:1.7;margin-top:20px;animation:fadeUp .7s .2s ease both}
   .hero-cta{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:40px;animation:fadeUp .7s .3s ease both}
   .btn-hero{padding:14px 32px;font-size:1rem;border-radius:100px;font-weight:600}
@@ -726,7 +740,7 @@ const css = `
   .sidebar-footer{padding:12px 20px;border-top:1px solid var(--bdr);flex-shrink:0}
   .signout-btn{width:100%;padding:9px;border-radius:10px;border:1.5px solid var(--bdr);background:transparent;color:var(--soft);font-family:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
   .signout-btn:hover{border-color:var(--red);color:var(--red);background:rgba(206,17,38,.04)}
-  .delete-account-btn{width:100%;padding:9px;border-radius:10px;border:1.5px solid rgba(206,17,38,.3);background:transparent;color:var(--red);font-family:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px}
+  .delete-account-btn{width:100%;padding:9px;border-radius:10px;border:1.5px solid rgba(206,17,38,.3);background:transparent;color:var(--red);font-family:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;font-size:.8rem;font-weight:500;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px}
   .delete-account-btn:hover{border-color:var(--red);background:rgba(206,17,38,.08)}
 
   /* ── CHAT AREA ── */
@@ -737,7 +751,7 @@ const css = `
   .chat-room-name{font-weight:700;font-size:.95rem}.chat-room-desc{font-size:.75rem;color:var(--muted)}
   .chat-header-right{display:flex;align-items:center;gap:8px}
   .member-count{font-size:.75rem;color:var(--muted);background:var(--sur2);padding:4px 10px;border-radius:100px}
-  .back-btn{padding:6px 10px;background:var(--gold);border:none;border-radius:50px;cursor:pointer;color:var(--soft);font-size:.8rem;display:flex;align-items:center;gap:4px;transition:background .2s}.back-btn:hover{background:var(--bdr)}
+  .back-btn{padding:6px 10px;background:var(--gold);border:none;border-radius:50px;cursor:pointer;color:var(--soft);<font-size: className="5"></font-size:>rem;Montserrat',sans-serif;display:flex;align-items:center;gap:4px;transition:background .2s}.back-btn:hover{background:var(--bdr)}
 
   /* ── NOTIF BANNER ── */
   .notif-banner{margin:14px 24px 0;background:linear-gradient(135deg,#1A1A1A,#2D2A22);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;animation:fadeUp .3s ease}
@@ -1394,6 +1408,9 @@ function AuthModal({ onClose, onAuth, defaultTab = 'login' }) {
       const store = stayIn ? localStorage : sessionStorage;
       store.setItem('gchat_token', data.access_token);
       store.setItem('gchat_user', JSON.stringify(user));
+      if (data.refresh_token) {
+        store.setItem('gchat_refresh_token', data.refresh_token);
+      }
 
       // Send welcome DM from admin to new users (non-blocking)
       if (tab === 'signup') {
@@ -2226,6 +2243,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
   const roomPollRef = useRef(null);
   const dmPollRef = useRef(null);
   const knownDmIds = useRef(new Set());
+  const dmIdsInitialized = useRef(false);
   const userScrolledUp = useRef(false);
   const firstUnreadRef = useRef(null);
   const notifPermission =
@@ -2323,23 +2341,24 @@ function ChatScreen({ user, token, onLogout, onToast }) {
         const unread = convs.reduce((s, c) => s + c.unread, 0);
         setTotalUnread(unread);
 
-        // Detect new incoming DMs for notifications
-        const newMsgs = data.filter(
-          (m) => m.to_user_id === user.id && !knownDmIds.current.has(m.id),
-        );
-        newMsgs.forEach((m) => {
-          if (!knownDmIds.current.has(m.id)) {
-            knownDmIds.current.add(m.id);
-            showBrowserNotif(`New message from ${m.from_username}`, m.content);
-            // In-app toast for private messages
-            onToast({
-              msg: `💬 New message from ${m.from_username}`,
-              type: '',
-            });
+        // On first load, just record all existing IDs — don't toast for them
+        if (!dmIdsInitialized.current) {
+          data.forEach((m) => knownDmIds.current.add(m.id));
+          dmIdsInitialized.current = true;
+        } else {
+          // Detect genuinely new incoming DMs (arrived after first load)
+          const newMsgs = data.filter(
+            (m) => m.to_user_id === user.id && !knownDmIds.current.has(m.id),
+          );
+          if (newMsgs.length > 0) {
+            newMsgs.forEach((m) => knownDmIds.current.add(m.id));
+            showBrowserNotif(
+              'New Message',
+              newMsgs[newMsgs.length - 1].content,
+            );
+            onToast({ msg: '💬 New Message', type: '' });
           }
-        });
-        // Initialize known IDs on first load
-        if (knownDmIds.current.size === 0) {
+          // Also record any sent messages we haven't seen yet
           data.forEach((m) => knownDmIds.current.add(m.id));
         }
       } catch {}
@@ -2355,7 +2374,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
       () => {
         setTotalUnread((current) => {
           if (current > 0) {
-            onToast({ msg: `🔔 Unread messages (${current})`, type: '' });
+            onToast({ msg: `🔔 Unread messages`, type: '' });
           }
           return current;
         });
@@ -2371,17 +2390,26 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     async function checkRoomUnread() {
       const newUnread = {};
       for (const room of rooms) {
+        // If we're currently viewing this room, it's always read
+        if (view === 'room' && activeRoom?.id === room.id) {
+          newUnread[room.id] = 0;
+          continue;
+        }
         try {
           const msgs = await sb.getMessages(token, room.id);
           if (Array.isArray(msgs) && msgs.length > 0) {
             const lastSeen = roomLastSeenRef.current[room.id];
             if (lastSeen) {
+              const lastSeenTime = new Date(lastSeen).getTime();
               newUnread[room.id] = msgs.filter(
-                (m) => new Date(m.created_at) > new Date(lastSeen),
+                (m) => new Date(m.created_at).getTime() > lastSeenTime,
               ).length;
             } else {
+              // Never visited this room — no badge (don't punish first-timers)
               newUnread[room.id] = 0;
             }
+          } else {
+            newUnread[room.id] = 0;
           }
         } catch {}
       }
@@ -2390,7 +2418,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
     checkRoomUnread();
     const t = setInterval(checkRoomUnread, 20000);
     return () => clearInterval(t);
-  }, [rooms, token]);
+  }, [rooms, token, view, activeRoom]);
 
   // Poll active DM thread
   useEffect(() => {
@@ -2566,7 +2594,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
       const result = await sb.deleteAccount(token);
       if (result) {
         // Clear all stored session data
-        ['gchat_token', 'gchat_user'].forEach((k) => {
+        ['gchat_token', 'gchat_user', 'gchat_refresh_token'].forEach((k) => {
           localStorage.removeItem(k);
           sessionStorage.removeItem(k);
         });
@@ -2862,6 +2890,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                     try {
                       sessionStorage.setItem('kp_active_room', r.id);
                     } catch {}
+                    setRoomUnread((prev) => ({ ...prev, [r.id]: 0 }));
                     setViewPersisted('room');
                     setSidebarOpen(false);
                   }}
@@ -3332,6 +3361,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                       try {
                         sessionStorage.setItem('kp_active_room', r.id);
                       } catch {}
+                      setRoomUnread((prev) => ({ ...prev, [r.id]: 0 }));
                       setViewPersisted('room');
                       setSidebarOpen(false);
                     }}
@@ -4165,6 +4195,8 @@ export default function App() {
               }
               localStorage.setItem('gchat_token', t);
               localStorage.setItem('gchat_user', JSON.stringify(u));
+              const rt = params.get('refresh_token');
+              if (rt) localStorage.setItem('gchat_refresh_token', rt);
               setToken(t);
               setUser(u);
               window.history.replaceState(
@@ -4183,16 +4215,50 @@ export default function App() {
         }
       }
       // Restore from storage
-      const t =
-        localStorage.getItem('gchat_token') ||
-        sessionStorage.getItem('gchat_token');
-      const u =
-        localStorage.getItem('gchat_user') ||
-        sessionStorage.getItem('gchat_user');
+      const storageArea = localStorage.getItem('gchat_token')
+        ? localStorage
+        : sessionStorage;
+      const t = storageArea.getItem('gchat_token');
+      const u = storageArea.getItem('gchat_user');
+      const rt = storageArea.getItem('gchat_refresh_token');
       if (t && u) {
         try {
-          setToken(t);
-          setUser(JSON.parse(u));
+          // Validate the stored token
+          const userCheck = await sb.getUser(t);
+          if (userCheck && userCheck.id) {
+            // Token still valid — use it
+            setToken(t);
+            setUser(JSON.parse(u));
+          } else if (rt) {
+            // Token expired — try to refresh
+            try {
+              const refreshed = await sb.refreshSession(rt);
+              if (refreshed?.access_token) {
+                const freshUser = await sb.getUser(refreshed.access_token);
+                if (freshUser && freshUser.id) {
+                  if (!freshUser.user_metadata) freshUser.user_metadata = {};
+                  if (!freshUser.user_metadata.username) {
+                    freshUser.user_metadata.username =
+                      freshUser.user_metadata.full_name ||
+                      freshUser.user_metadata.name ||
+                      freshUser.email?.split('@')[0] ||
+                      'User';
+                  }
+                  storageArea.setItem('gchat_token', refreshed.access_token);
+                  storageArea.setItem('gchat_user', JSON.stringify(freshUser));
+                  if (refreshed.refresh_token) {
+                    storageArea.setItem(
+                      'gchat_refresh_token',
+                      refreshed.refresh_token,
+                    );
+                  }
+                  setToken(refreshed.access_token);
+                  setUser(freshUser);
+                }
+              }
+            } catch {}
+          }
+          // If both fail, user remains null and they'll see the login page
         } catch {}
       }
       setBooting(false);
@@ -4212,7 +4278,7 @@ export default function App() {
   }
 
   function handleLogout() {
-    ['gchat_token', 'gchat_user'].forEach((k) => {
+    ['gchat_token', 'gchat_user', 'gchat_refresh_token'].forEach((k) => {
       localStorage.removeItem(k);
       sessionStorage.removeItem(k);
     });
