@@ -762,7 +762,7 @@ const css = `
 
   /* ── WELCOME BANNER ── */
   .welcome-banner{margin:16px 24px 0;background:linear-gradient(135deg,#1A1A1A,#2D2A22);border-radius:14px;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-  .welcome-text{color:#fff}.welcome-text h3font-family:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;font-size:1rem;margin-bottom:3px}.welcome-text p{font-size:.78rem;color:rgba(255,255,255,.55)}
+  .welcome-text{color:#fff}.welcome-text h3font-family:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;:'Montserrat',sans-serif;font-size:1rem;margin-bottom:3px}.welcome-text p{font-size:.78rem;color:black}
   .welcome-kente{height:3px;border-radius:2px;margin-top:10px;background:repeating-linear-gradient(90deg,var(--red) 0,var(--red) 12px,var(--gold) 12px,var(--gold) 24px,var(--green) 24px,var(--green) 36px,#fff 36px,#fff 48px)}
 
   /* ── MESSAGES ── */
