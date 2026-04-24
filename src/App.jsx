@@ -2040,7 +2040,7 @@ function ForgotPasswordModal({ onClose, onSwitchToLogin }) {
               }}
               onClick={onSwitchToLogin || onClose}
             >
-              ← Back to Sign In
+              Back to Sign In
             </button>
           </>
         )}
@@ -3275,7 +3275,7 @@ function ChatScreen({ user, token, onLogout, onToast }) {
                   className="back-btn"
                   onClick={() => setViewPersisted('lobby')}
                 >
-                  ← Home
+                  Home
                 </button>
               </div>
             </>
